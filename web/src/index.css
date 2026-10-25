@@ -4,9 +4,8 @@
   --muted: #6b6b6b;
   --border: #e5e5e2;
   --bubble: #f0f0ec;
-  --accent: #2f5d50;
-  --on-accent: #fafaf8;
-  --ring: #2f5d50;
+  --accent: #2f6feb;
+  --on-accent: #ffffff;
 
   --sans: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -19,8 +18,7 @@
     --muted: #9a9a9a;
     --border: #2a2a2a;
     --bubble: #222222;
-    /* lighter shade of the accent so focus rings stay visible on dark */
-    --ring: #5e9483;
+    --accent: #5b8def;
   }
 }
 
@@ -53,7 +51,7 @@ input {
 }
 
 :focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -73,10 +71,23 @@ input {
 }
 
 .header {
-  padding-top: 20px;
-  padding-bottom: 12px;
-  font-size: 14px;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 18px;
+  padding-bottom: 10px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.logo-mark {
+  flex: none;
+}
+
+.logo-bg {
+  fill: var(--accent);
 }
 
 .scroll {
@@ -170,34 +181,52 @@ input {
 
 /* Empty state */
 
+.thread.is-empty {
+  min-height: 100%;
+}
+
 .empty {
-  padding-top: 18vh;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.empty h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
 }
 
 .empty p {
-  margin: 0 0 14px;
+  margin: 0 0 24px;
   color: var(--muted);
 }
 
 .examples {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
 
 .example {
   background: none;
-  border: none;
-  padding: 2px 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  color: var(--muted);
+  font-size: 14px;
   cursor: pointer;
-  text-align: left;
 }
 
 .example:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-color: var(--border);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Composer */
@@ -221,7 +250,7 @@ input {
 }
 
 .field:focus-within {
-  border-color: var(--ring);
+  border-color: var(--accent);
 }
 
 .field input {

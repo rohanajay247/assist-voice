@@ -34,6 +34,20 @@ function formatToolCall({ name, args }: ToolCall): string {
   return [name, ...values].join(' · ')
 }
 
+// Same mark as public/favicon.svg, drawn on a 16px grid so the bars stay crisp
+function LogoMark() {
+  return (
+    <svg className="logo-mark" width="20" height="20" viewBox="0 0 16 16" aria-hidden="true">
+      <rect className="logo-bg" width="16" height="16" rx="3.5" />
+      <g fill="#FFFFFF">
+        <rect x="3" y="5" width="2" height="6" rx="1" />
+        <rect x="7" y="3" width="2" height="10" rx="1" />
+        <rect x="11" y="6" width="2" height="4" rx="1" />
+      </g>
+    </svg>
+  )
+}
+
 async function sendChat(messages: Message[]): Promise<ChatResponse> {
   const res = await fetch(`${API_URL}/chat`, {
     method: 'POST',
@@ -90,12 +104,16 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="column header">Assist</header>
+      <header className="column header">
+        <LogoMark />
+        <span>Assist</span>
+      </header>
 
       <main className="scroll">
-        <div className="column thread" aria-live="polite">
+        <div className={`column thread${empty ? ' is-empty' : ''}`} aria-live="polite">
           {empty && (
             <div className="empty">
+              <h1>What can I do for you?</h1>
               <p>Ask about your notes or the weather.</p>
               <div className="examples">
                 {EXAMPLES.map((ex) => (
