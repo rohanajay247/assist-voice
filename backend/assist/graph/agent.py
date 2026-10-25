@@ -1,18 +1,20 @@
 import asyncio
+import uuid
 
 from dotenv import load_dotenv
-from langchain_core.messages import SystemMessage  # NEW
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_litellm import ChatLiteLLM
+from langgraph.checkpoint.memory import MemorySaver  # NEW (Day 2)
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 load_dotenv()  # loads GEMINI_API_KEY from .env
 
-# NEW: standing instruction sent in front of every call to Gemini
+# Standing instruction sent in front of every call to Gemini
 SYSTEM = SystemMessage(
     "You are Assist, a voice assistant. Keep answers to 1-2 short sentences. "
-    "The user lives in Albstadt Ebingen, Germany; use that when no city is given. "
+    "The user lives in Albstadt, Germany; use that when no city is given. "
     "Use tools for the user's notes and weather; never invent their data. "
     "For general questions, answer briefly from your own knowledge."
 )
@@ -44,7 +46,7 @@ async def build_graph():
 
     # Node 1, "agent": send the conversation to Gemini, add its reply to the state
     async def agent(state: MessagesState):
-        response = await model.ainvoke([SYSTEM] + state["messages"])  # NEW: system prompt first
+        response = await model.ainvoke([SYSTEM] + state["messages"])
         return {"messages": [response]}
 
     # Build the graph
@@ -54,31 +56,37 @@ async def build_graph():
     g.add_edge(START, "agent")             # always start with the brain
     g.add_conditional_edges("agent", tools_condition)  # tool call → "tools", else → END
     g.add_edge("tools", "agent")           # after a tool runs, back to the brain
-    return g.compile()                     # turn the drawing into something runnable
+
+    # NEW (Day 2): the checkpointer saves the full state after every step,
+    # keyed by thread_id. Same thread_id next call = conversation continues.
+    # Also required for interrupt(): a paused graph resumes from this saved state.
+    # MemorySaver keeps it in RAM, so a restart (or --reload) wipes it.
+    return g.compile(checkpointer=MemorySaver())
 
 
 async def main():
     """Terminal chat for testing the graph."""
     graph = await build_graph()
 
-    messages = []  # the conversation, kept across turns
+    # NEW: one thread per terminal session. No local `messages` list anymore,
+    # the checkpointer remembers the conversation.
+    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+
     while True:
         text = input("\n> ")
         if text.strip().lower() in {"exit", "quit"}:
             break
-        messages.append(("user", text))
 
-        # Run the whole loop for this turn
-        result = await graph.ainvoke({"messages": messages})
+        # Send only the new message; add_messages appends it to the saved history
+        result = await graph.ainvoke({"messages": [HumanMessage(text)]}, config)
+        messages = result["messages"]  # the whole thread
 
-        # Print only this turn's tool calls, then the final answer
-        for m in result["messages"][len(messages):]:
+        # Print only this turn's tool calls: everything after the last user message
+        start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
+        for m in messages[start + 1:]:
             for tc in getattr(m, "tool_calls", None) or []:
                 print(f"  → {tc['name']}({tc['args']})")
-        print(result["messages"][-1].content)
-
-        # Save the full history so "delete it" knows what "it" is
-        messages = result["messages"]
+        print(messages[-1].content)
 
 
 if __name__ == "__main__":

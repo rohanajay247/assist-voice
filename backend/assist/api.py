@@ -1,46 +1,44 @@
+"""Assist API: POST /chat.
+
+Day 2 change: the conversation history now lives on the server.
+
+Before: the UI sent the whole conversation as plain text on every request.
+Tool results (for example the id returned by add_note) were not part of that
+text, so "delete it" in the next turn had to search for the note again.
+
+Now: LangGraph's checkpointer saves the full graph state (every message,
+including tool calls and tool results) under a thread_id. The UI sends only
+the new message and its thread_id; LangGraph loads the rest.
+This is also the base for interrupt() later today: a paused graph needs a
+saved state to resume from.
+"""
 from contextlib import asynccontextmanager
-from typing import Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langfuse import get_client
+from langchain_core.messages import AIMessage, HumanMessage
 from langfuse.langchain import CallbackHandler
 from pydantic import BaseModel
 
-load_dotenv()  # Langfuse keys (LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL)
+from backend.assist.graph.agent import build_graph
 
-from backend.assist.graph.agent import build_graph  # noqa: E402
+load_dotenv()
 
-
-class Message(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
-
-
-class ChatRequest(BaseModel):
-    messages: list[Message]
-
-
-class ToolCall(BaseModel):
-    name: str
-    args: dict
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    tool_calls: list[ToolCall]
+graph = None
+langfuse_handler = CallbackHandler()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Build once: starts the MCP servers and compiles the graph
-    app.state.graph = await build_graph()
+    # Built once at startup. The checkpointer lives inside the compiled graph,
+    # so it also lives as long as the server process (RAM only, wiped by --reload).
+    global graph
+    graph = await build_graph()  # keep your own Day 1 line here if it differs
     yield
-    get_client().flush()  # send any buffered traces before exit
 
 
-app = FastAPI(title="Assist", lifespan=lifespan)
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -49,19 +47,50 @@ app.add_middleware(
 )
 
 
+class ChatRequest(BaseModel):
+    thread_id: str  # NEW: which saved conversation to continue
+    message: str    # NEW: only the latest user text, no history
+
+
+class ToolCall(BaseModel):
+    name: str
+    args: dict  # the UI shows these as "get_weather · Albstadt · 2"
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    tool_calls: list[ToolCall]
+
+
+def this_turn(messages: list) -> list:
+    """Messages produced after the latest user message.
+
+    The graph now returns the WHOLE thread, not just this request.
+    Without this slice, the UI would show every tool call ever made.
+    """
+    start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
+    return messages[start + 1:]
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
-    history = [(m.role, m.content) for m in req.messages]
-    result = await app.state.graph.ainvoke(
-        {"messages": history},
-        config={"callbacks": [CallbackHandler()]},
-    )
+    config = {
+        # The key the checkpointer uses to save and load state.
+        "configurable": {"thread_id": req.thread_id},
+        "callbacks": [langfuse_handler],
+        # Bonus: Langfuse groups all traces of one conversation into a session.
+        "metadata": {"langfuse_session_id": req.thread_id},
+    }
 
-    # Only messages added this turn, so earlier tool calls aren't repeated
-    new_messages = result["messages"][len(history):]
+    # Send only the new message. The add_messages reducer appends it
+    # to the saved history for this thread_id.
+    result = await graph.ainvoke({"messages": [HumanMessage(req.message)]}, config)
+    messages = result["messages"]
+
     tool_calls = [
         ToolCall(name=tc["name"], args=tc["args"])
-        for m in new_messages
-        for tc in getattr(m, "tool_calls", None) or []
+        for m in this_turn(messages)
+        if isinstance(m, AIMessage)
+        for tc in m.tool_calls
     ]
-    return ChatResponse(reply=result["messages"][-1].content, tool_calls=tool_calls)
+    return ChatResponse(reply=messages[-1].content, tool_calls=tool_calls)
