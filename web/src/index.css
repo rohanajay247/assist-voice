@@ -1,0 +1,280 @@
+:root {
+  --bg: #fafaf8;
+  --text: #1a1a1a;
+  --muted: #6b6b6b;
+  --border: #e5e5e2;
+  --bubble: #f0f0ec;
+  --accent: #2f5d50;
+  --on-accent: #fafaf8;
+  --ring: #2f5d50;
+
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141414;
+    --text: #ededed;
+    --muted: #9a9a9a;
+    --border: #2a2a2a;
+    --bubble: #222222;
+    /* lighter shade of the accent so focus rings stay visible on dark */
+    --ring: #5e9483;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Layout */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.column {
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.header {
+  padding-top: 20px;
+  padding-bottom: 12px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 16px;
+  padding-bottom: 24px;
+}
+
+/* Messages */
+
+.msg-user {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: 8px 12px;
+  background: var(--bubble);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg-assistant {
+  align-self: flex-start;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tool {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.error {
+  align-self: flex-start;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Waiting dots */
+
+.dots {
+  display: flex;
+  gap: 5px;
+  padding: 8px 0;
+}
+
+.dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* Empty state */
+
+.empty {
+  padding-top: 18vh;
+}
+
+.empty p {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+.examples {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.example {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.example:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--border);
+}
+
+/* Composer */
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  padding-bottom: 20px;
+}
+
+.field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 4px 4px 16px;
+}
+
+.field:focus-within {
+  border-color: var(--ring);
+}
+
+.field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  padding: 6px 0;
+}
+
+.field input::placeholder {
+  color: var(--muted);
+}
+
+.icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.send {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.send:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: default;
+}
+
+.mic {
+  width: 42px;
+  height: 42px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.mic:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots span {
+    animation-duration: 3s;
+  }
+}

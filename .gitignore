@@ -221,3 +221,7 @@ __marimo__/
 
 *.db
 .claude/
+
+# Web
+web/node_modules/
+web/.env
