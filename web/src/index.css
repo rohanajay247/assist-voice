@@ -242,10 +242,13 @@ input {
   display: flex;
   align-items: center;
   min-width: 0;
+  /* 44px tall with a 32px send button: 6px inset on top, bottom and right
+     (1px border + 5px padding), so the button is concentric with the pill end */
+  height: 44px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 4px 4px 16px;
-  gap: 2px;
+  border-radius: 22px;
+  padding: 0 5px 0 16px;
+  gap: 8px;
 }
 
 .field:focus-within {
@@ -258,7 +261,8 @@ input {
   border: none;
   background: none;
   outline: none;
-  padding: 6px 0;
+  padding: 0;
+  height: 100%;
 }
 
 .field input::placeholder {
