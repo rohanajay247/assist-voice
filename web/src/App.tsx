@@ -171,6 +171,18 @@ export default function App() {
             autoFocus
           />
           <button
+            type="button"
+            className="icon-btn mic"
+            disabled
+            aria-label="Voice input (coming soon)"
+            title="Voice input (coming soon)"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="12" rx="3" />
+              <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+            </svg>
+          </button>
+          <button
             type="submit"
             className="icon-btn send"
             disabled={!input.trim() || pending}
@@ -181,18 +193,6 @@ export default function App() {
             </svg>
           </button>
         </div>
-        <button
-          type="button"
-          className="icon-btn mic"
-          disabled
-          aria-label="Voice input (coming soon)"
-          title="Voice input (coming soon)"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="9" y="3" width="6" height="12" rx="3" />
-            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-          </svg>
-        </button>
       </form>
     </div>
   )
