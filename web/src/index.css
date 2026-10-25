@@ -9,6 +9,7 @@
 
   --sans: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --serif: "Source Serif 4", Georgia, serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -76,9 +77,10 @@ input {
   gap: 8px;
   padding-top: 18px;
   padding-bottom: 10px;
+  font-family: var(--serif);
   font-size: 22px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   line-height: 1;
 }
 
@@ -195,11 +197,12 @@ input {
 }
 
 .empty h1 {
-  margin: 0 0 6px;
-  font-size: 28px;
+  margin: 0 0 8px;
+  font-family: var(--serif);
+  font-size: 32px;
   font-weight: 500;
-  letter-spacing: -0.015em;
-  line-height: 1.25;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
 }
 
 .empty p {
