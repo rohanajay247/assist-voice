@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 type Role = "user" | "assistant";
 
@@ -44,6 +50,7 @@ function formatToolCall({ name, args }: ToolCall): string {
 
 const MIN_RECORDING_MS = 300; // shorter presses are treated as accidental taps
 const MUTE_KEY = "assist.muted";
+const VOICE_KEY = "assist.voice"; // voiceURI, or "" for automatic
 
 const YES_WORDS = ["yes", "yeah", "okay", "ok", "sure", "ja", "do it"];
 const NO_WORDS = ["no", "nope", "cancel", "nein", "stop"];
@@ -80,11 +87,47 @@ function guessLang(text: string): string {
     : "en-US";
 }
 
-function speak(text: string) {
+// Prefer the neural voices browsers ship: Edge "… Online (Natural)", Chrome "Google …"
+function voiceScore(v: SpeechSynthesisVoice): number {
+  return (
+    (/natural/i.test(v.name) ? 4 : 0) +
+    (/online|google/i.test(v.name) ? 2 : 0) +
+    (v.default ? 1 : 0)
+  );
+}
+
+// The chosen voice if it speaks this language, otherwise the best one that does
+function pickVoice(
+  lang: string,
+  chosenURI: string,
+): SpeechSynthesisVoice | undefined {
+  const prefix = lang.slice(0, 2);
+  const voices = window.speechSynthesis
+    .getVoices()
+    .filter((v) => v.lang.toLowerCase().startsWith(prefix));
+  return (
+    voices.find((v) => v.voiceURI === chosenURI) ??
+    voices.sort((a, b) => voiceScore(b) - voiceScore(a))[0]
+  );
+}
+
+// "Microsoft Aria Online (Natural) - English (United States)" -> "Aria (Natural) · en-US"
+function voiceLabel(v: SpeechSynthesisVoice): string {
+  const name = v.name
+    .replace(/^Microsoft /, "")
+    .replace(/ Online \(Natural\)/, " (Natural)")
+    .replace(/ - .*$/, "");
+  return `${name} · ${v.lang}`;
+}
+
+function speak(text: string, voiceURI = "") {
   if (!("speechSynthesis" in window) || !text.trim()) return;
   window.speechSynthesis.cancel(); // never queue up behind an old reply
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = guessLang(text);
+  const lang = guessLang(text);
+  const voice = pickVoice(lang, voiceURI);
+  utterance.lang = voice?.lang ?? lang;
+  if (voice) utterance.voice = voice;
   window.speechSynthesis.speak(utterance);
 }
 
@@ -93,25 +136,30 @@ function stopSpeaking() {
 }
 
 // localStorage can throw (private mode, blocked storage), so it is best effort
-function loadMuted(): boolean {
+function loadPref(key: string): string | null {
   try {
-    return localStorage.getItem(MUTE_KEY) === "1";
+    return localStorage.getItem(key);
   } catch {
-    return false;
+    return null;
   }
 }
 
-function saveMuted(muted: boolean) {
+function savePref(key: string, value: string) {
   try {
-    localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+    localStorage.setItem(key, value);
   } catch {
-    // ignore: the toggle still works for this page load
+    // ignore: the setting still works for this page load
   }
 }
 
 // First format this browser can record; Groq reads the format from the extension
 function pickMimeType(): string {
-  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  const types = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
   return types.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
 }
 
@@ -124,7 +172,10 @@ function extensionFor(mimeType: string): string {
 async function transcribe(audio: Blob): Promise<string> {
   const form = new FormData();
   form.append("audio", audio, `speech.${extensionFor(audio.type)}`);
-  const res = await fetch(`${API_URL}/transcribe`, { method: "POST", body: form });
+  const res = await fetch(`${API_URL}/transcribe`, {
+    method: "POST",
+    body: form,
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data: { text: string } = await res.json();
   return data.text;
@@ -158,6 +209,174 @@ function LogoMark() {
   );
 }
 
+// Voice picker: a small popover instead of a native <select>, whose open
+// list can't be themed (it stays white in dark mode).
+function VoiceMenu({
+  voices,
+  value,
+  onChange,
+}: {
+  voices: SpeechSynthesisVoice[];
+  value: string;
+  onChange: (uri: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Best-sounding voices first within each language
+  const byScore = (a: SpeechSynthesisVoice, b: SpeechSynthesisVoice) =>
+    voiceScore(b) - voiceScore(a);
+  const groups = [
+    {
+      label: "English",
+      voices: voices.filter((v) => /^en/i.test(v.lang)).sort(byScore),
+    },
+    {
+      label: "Deutsch",
+      voices: voices.filter((v) => /^de/i.test(v.lang)).sort(byScore),
+    },
+  ].filter((g) => g.voices.length > 0);
+
+  const current = voices.find((v) => v.voiceURI === value);
+  const currentLabel = current ? voiceLabel(current) : "Auto voice";
+
+  // While open: close on outside press, and start keyboard focus on the selection
+  useEffect(() => {
+    if (!open) return;
+    const items =
+      listRef.current?.querySelectorAll<HTMLElement>('[role="option"]');
+    const selected = listRef.current?.querySelector<HTMLElement>(
+      '[aria-selected="true"]',
+    );
+    (selected ?? items?.[0])?.focus();
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  function pick(uri: string) {
+    setOpen(false);
+    buttonRef.current?.focus();
+    onChange(uri);
+  }
+
+  function onListKeyDown(e: KeyboardEvent) {
+    const items = [
+      ...(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ??
+        []),
+    ];
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      items[(i + step + items.length) % items.length]?.focus();
+    } else if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      items[e.key === "Home" ? 0 : items.length - 1]?.focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    } else if (e.key === "Tab") {
+      setOpen(false);
+    }
+  }
+
+  const option = (uri: string, label: string) => (
+    <div
+      key={uri || "auto"}
+      role="option"
+      tabIndex={-1}
+      aria-selected={uri === value}
+      className="voice-option"
+      onClick={() => pick(uri)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          pick(uri);
+        }
+      }}
+    >
+      <span className="voice-option-label">{label}</span>
+      {uri === value && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.25"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="voice-menu" ref={rootRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="voice-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`Voice for spoken replies: ${currentLabel}`}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" && !open) {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        <span className="voice-trigger-label">{currentLabel}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          ref={listRef}
+          className="voice-list"
+          role="listbox"
+          aria-label="Voice for spoken replies"
+          onKeyDown={onListKeyDown}
+        >
+          {option("", "Auto voice")}
+          {groups.map((g) => (
+            <div key={g.label} role="group" aria-label={g.label}>
+              <div className="voice-group" aria-hidden="true">
+                {g.label}
+              </div>
+              {g.voices.map((v) => option(v.voiceURI, voiceLabel(v)))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // The server keeps the history (LangGraph checkpointer).
 // /chat sends a new message, /approve answers a pending approval.
 async function post(path: string, body: unknown): Promise<ChatResponse> {
@@ -176,8 +395,12 @@ export default function App() {
   const [pending, setPending] = useState(false); // request in flight
   const [approval, setApproval] = useState<ToolCall[] | null>(null); // waiting for OK
   const [error, setError] = useState<string | null>(null);
-  const [voice, setVoice] = useState<"idle" | "starting" | "recording" | "transcribing">("idle");
-  const [muted, setMuted] = useState(loadMuted);
+  const [voice, setVoice] = useState<
+    "idle" | "starting" | "recording" | "transcribing"
+  >("idle");
+  const [muted, setMuted] = useState(() => loadPref(MUTE_KEY) === "1");
+  const [voiceURI, setVoiceURI] = useState(() => loadPref(VOICE_KEY) ?? "");
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // One conversation per page load. A ref keeps the same value across
@@ -191,13 +414,32 @@ export default function App() {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages, pending, error, approval]);
 
+  // Browsers load their voice list late, so listen for it to arrive
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const update = () =>
+      setVoices(
+        window.speechSynthesis
+          .getVoices()
+          .filter((v) => /^(en|de)/i.test(v.lang)),
+      );
+    update();
+    window.speechSynthesis.addEventListener("voiceschanged", update);
+    return () =>
+      window.speechSynthesis.removeEventListener("voiceschanged", update);
+  }, []);
+
   // Either the graph paused for approval, or it finished with a reply
   function show(data: ChatResponse) {
     // Read through the ref: the request may have started before a mute toggle
-    const quiet = latest.current.muted;
+    const { muted: quiet, voiceURI: voice } = latest.current;
     if (data.pending && data.pending.length > 0) {
       setApproval(data.pending);
-      if (!quiet) speak(`Okay to do this? ${data.pending.map(describeCall).join(" ")}`);
+      if (!quiet)
+        speak(
+          `Okay to do this? ${data.pending.map(describeCall).join(" ")}`,
+          voice,
+        );
       return;
     }
     setApproval(null);
@@ -205,7 +447,7 @@ export default function App() {
       ...prev,
       { role: "assistant", content: data.reply, toolCalls: data.tool_calls },
     ]);
-    if (!quiet) speak(data.reply);
+    if (!quiet) speak(data.reply, voice);
   }
 
   async function run(request: () => Promise<ChatResponse>) {
@@ -242,16 +484,26 @@ export default function App() {
 
   // A recording finishes in callbacks created on an earlier render, so they
   // reach the current state and handlers through this ref.
-  const latest = useRef({ approval, muted, send, decide });
+  const latest = useRef({ approval, muted, voiceURI, send, decide });
   useEffect(() => {
-    latest.current = { approval, muted, send, decide };
+    latest.current = { approval, muted, voiceURI, send, decide };
   });
 
   function toggleMuted() {
     const next = !muted;
     setMuted(next);
-    saveMuted(next);
+    savePref(MUTE_KEY, next ? "1" : "0");
     if (next) stopSpeaking();
+  }
+
+  // Save the pick and play a short sample so the change is audible right away
+  function chooseVoice(uri: string) {
+    setVoiceURI(uri);
+    savePref(VOICE_KEY, uri);
+    if (muted) return;
+    const voice = voices.find((v) => v.voiceURI === uri);
+    const german = voice?.lang.toLowerCase().startsWith("de");
+    speak(german ? "Hallo, ich bin Assist." : "Hi, I'm Assist.", uri);
   }
 
   // Hold to talk: press starts recording, release stops it and transcribes
@@ -278,7 +530,10 @@ export default function App() {
     }
 
     const mimeType = pickMimeType();
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const recorder = new MediaRecorder(
+      stream,
+      mimeType ? { mimeType } : undefined,
+    );
     const chunks: Blob[] = [];
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
@@ -289,7 +544,9 @@ export default function App() {
     recorder.onstop = (e) => {
       stream.getTracks().forEach((t) => t.stop()); // turn off the mic indicator
       const duration = e.timeStamp - startedAtRef.current;
-      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      const blob = new Blob(chunks, {
+        type: recorder.mimeType || "audio/webm",
+      });
       if (duration < MIN_RECORDING_MS || blob.size === 0) {
         setVoice("idle");
         return;
@@ -350,33 +607,44 @@ export default function App() {
       <header className="column header">
         <LogoMark />
         <span>Assist</span>
-        <button
-          type="button"
-          className="icon-btn speaker"
-          onClick={toggleMuted}
-          aria-pressed={!muted}
-          aria-label={muted ? "Read replies aloud" : "Stop reading replies aloud"}
-          title={muted ? "Spoken replies off" : "Spoken replies on"}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+        <div className="header-actions">
+          {voices.length > 0 && (
+            <VoiceMenu
+              voices={voices}
+              value={voiceURI}
+              onChange={chooseVoice}
+            />
+          )}
+          <button
+            type="button"
+            className="icon-btn speaker"
+            onClick={toggleMuted}
+            aria-pressed={!muted}
+            aria-label={
+              muted ? "Read replies aloud" : "Stop reading replies aloud"
+            }
+            title={muted ? "Spoken replies off" : "Spoken replies on"}
           >
-            <path d="M11 5 6 9H3v6h3l5 4V5z" />
-            {muted ? (
-              <path d="m16 9 5 6M21 9l-5 6" />
-            ) : (
-              <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
-            )}
-          </svg>
-        </button>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M11 5 6 9H3v6h3l5 4V5z" />
+              {muted ? (
+                <path d="m16 9 5 6M21 9l-5 6" />
+              ) : (
+                <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+              )}
+            </svg>
+          </button>
+        </div>
       </header>
 
       <main className="scroll">
