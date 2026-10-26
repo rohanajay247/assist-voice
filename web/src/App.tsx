@@ -13,16 +13,25 @@ interface ToolCall {
   args: Record<string, unknown>;
 }
 
+// One line in the step panel, built by the server from this turn's messages
+interface Step {
+  kind: "plan" | "approval" | "tool" | "undo_log";
+  label: string;
+  status: "ok" | "denied" | "error" | "waiting";
+}
+
 interface Message {
   role: Role;
   content: string;
   toolCalls?: ToolCall[];
+  steps?: Step[];
 }
 
 interface ChatResponse {
   reply: string;
   tool_calls: ToolCall[];
   pending?: ToolCall[] | null; // calls waiting for the user's OK
+  steps?: Step[];
 }
 
 const API_URL = import.meta.env.VITE_API_URL as string;
@@ -206,6 +215,72 @@ function LogoMark() {
         <rect x="11" y="6" width="2" height="4" rx="1" />
       </g>
     </svg>
+  );
+}
+
+const STEP_ICONS: Record<Step["status"], string> = {
+  ok: "✓",
+  denied: "✕",
+  error: "!",
+  waiting: "◌",
+};
+
+const STEP_STATUS_TEXT: Record<Step["status"], string> = {
+  ok: "done",
+  denied: "denied",
+  error: "failed",
+  waiting: "waiting",
+};
+
+// "Steps (n)" under a reply: what Assist did, collapsed unless asked
+function Steps({
+  steps,
+  defaultOpen = false,
+}: {
+  steps: Step[];
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="steps">
+      <button
+        type="button"
+        className="steps-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <svg
+          className="steps-chevron"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+        Steps ({steps.length})
+      </button>
+      {open && (
+        <ol className="steps-list">
+          {steps.map((s, i) => (
+            <li key={i} className={`step step-${s.status}`}>
+              <span className="step-icon" aria-hidden="true">
+                {STEP_ICONS[s.status]}
+              </span>
+              <span className="step-label">{s.label}</span>
+              <span className="visually-hidden">
+                , {STEP_STATUS_TEXT[s.status]}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }
 
@@ -394,6 +469,7 @@ export default function App() {
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false); // request in flight
   const [approval, setApproval] = useState<ToolCall[] | null>(null); // waiting for OK
+  const [approvalSteps, setApprovalSteps] = useState<Step[]>([]); // steps so far
   const [error, setError] = useState<string | null>(null);
   const [voice, setVoice] = useState<
     "idle" | "starting" | "recording" | "transcribing"
@@ -435,6 +511,7 @@ export default function App() {
     const { muted: quiet, voiceURI: voice } = latest.current;
     if (data.pending && data.pending.length > 0) {
       setApproval(data.pending);
+      setApprovalSteps(data.steps ?? []);
       if (!quiet)
         speak(
           `Okay to do this? ${data.pending.map(describeCall).join(" ")}`,
@@ -445,7 +522,12 @@ export default function App() {
     setApproval(null);
     setMessages((prev) => [
       ...prev,
-      { role: "assistant", content: data.reply, toolCalls: data.tool_calls },
+      {
+        role: "assistant",
+        content: data.reply,
+        toolCalls: data.tool_calls,
+        steps: data.steps,
+      },
     ]);
     if (!quiet) speak(data.reply, voice);
   }
@@ -683,6 +765,7 @@ export default function App() {
                     ))}
                   </div>
                 )}
+                {m.steps && m.steps.length > 0 && <Steps steps={m.steps} />}
               </div>
             ),
           )}
@@ -697,6 +780,9 @@ export default function App() {
                   </span>
                 ))}
               </div>
+              {approvalSteps.length > 0 && (
+                <Steps steps={approvalSteps} defaultOpen />
+              )}
               <div className="approval-actions">
                 <button
                   className="btn btn-approve"

@@ -10,6 +10,7 @@ Day 2:
 """
 import os
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
@@ -20,7 +21,7 @@ from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from backend.assist.graph.agent import DENIED, build_graph
+from backend.assist.graph.agent import DENIED, WRITE_TOOLS, build_graph
 
 load_dotenv()
 
@@ -65,10 +66,18 @@ class ToolCall(BaseModel):
     args: dict  # the UI shows these as "get_weather · Albstadt · 2"
 
 
+class Step(BaseModel):
+    # One line in the UI's step panel: what Assist did this turn, in order
+    kind: Literal["plan", "approval", "tool", "undo_log"]
+    label: str
+    status: Literal["ok", "denied", "error", "waiting"]
+
+
 class ChatResponse(BaseModel):
     reply: str
     tool_calls: list[ToolCall]          # calls that actually ran this turn
     pending: list[ToolCall] | None = None  # NEW: calls waiting for approval
+    steps: list[Step] = []              # what happened this turn, for the step panel
 
 
 class TranscribeResponse(BaseModel):
@@ -85,6 +94,47 @@ def make_config(thread_id: str) -> dict:
     }
 
 
+def build_steps(turn: list, interrupted: bool) -> list[Step]:
+    """Walk this turn's messages in order and describe each thing that happened.
+
+    `turn` must include the last AIMessage even when the graph is interrupted,
+    because its calls are the ones still waiting for approval.
+    """
+    results = {m.tool_call_id: m for m in turn if isinstance(m, ToolMessage)}
+    names = {
+        tc["id"]: tc["name"]
+        for m in turn
+        if isinstance(m, AIMessage)
+        for tc in m.tool_calls
+    }
+    steps: list[Step] = []
+
+    for m in turn:
+        if isinstance(m, AIMessage):
+            for tc in m.tool_calls:
+                steps.append(Step(kind="plan", label=f"Decided to call {tc['name']}", status="ok"))
+                if tc["name"] not in WRITE_TOOLS:
+                    continue
+                result = results.get(tc["id"])
+                if result is not None:
+                    status = "denied" if result.content == DENIED else "ok"
+                elif interrupted:
+                    status = "waiting"
+                else:
+                    continue  # no answer and no interrupt: nothing to report
+                steps.append(Step(kind="approval", label=f"Approval for {tc['name']}", status=status))
+
+        elif isinstance(m, ToolMessage) and m.content != DENIED:
+            name = m.name or names.get(m.tool_call_id, "tool")
+            failed = m.status == "error"
+            steps.append(Step(kind="tool", label=f"Ran {name}", status="error" if failed else "ok"))
+            # The graph's record node logs successful writes so they can be undone
+            if name in WRITE_TOOLS and not failed:
+                steps.append(Step(kind="undo_log", label="Saved for undo", status="ok"))
+
+    return steps
+
+
 def to_response(result: dict) -> ChatResponse:
     """Turn the graph result into what the UI needs.
 
@@ -96,6 +146,7 @@ def to_response(result: dict) -> ChatResponse:
 
     start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
     turn = messages[start + 1:]
+    steps = build_steps(turn, interrupted=bool(interrupts))  # before the cut below
     if interrupts:
         turn = turn[:-1]  # the last message holds the calls still waiting, not run yet
 
@@ -115,9 +166,9 @@ def to_response(result: dict) -> ChatResponse:
 
     if interrupts:
         pending = [ToolCall(**p) for p in interrupts[0].value]
-        return ChatResponse(reply="", tool_calls=tool_calls, pending=pending)
+        return ChatResponse(reply="", tool_calls=tool_calls, pending=pending, steps=steps)
 
-    return ChatResponse(reply=messages[-1].content, tool_calls=tool_calls)
+    return ChatResponse(reply=messages[-1].content, tool_calls=tool_calls, steps=steps)
 
 
 @app.post("/chat", response_model=ChatResponse)

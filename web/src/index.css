@@ -148,6 +148,87 @@ input {
   padding: 1px 6px;
 }
 
+/* Step panel */
+
+.steps {
+  margin-top: 8px;
+}
+
+.steps-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 4px 2px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.steps-toggle:hover {
+  color: var(--text);
+}
+
+.steps-chevron {
+  transition: transform 0.15s ease;
+}
+
+.steps-toggle[aria-expanded="true"] .steps-chevron {
+  transform: rotate(90deg);
+}
+
+.steps-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 2px 0 2px 10px;
+  border-left: 1px solid var(--border);
+  margin-left: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.step {
+  display: flex;
+  gap: 8px;
+}
+
+.step-icon {
+  flex: none;
+  width: 1ch;
+  text-align: center;
+}
+
+.step-ok .step-icon {
+  color: var(--success);
+}
+
+.step-denied .step-icon,
+.step-error .step-icon {
+  color: var(--danger);
+}
+
+.step-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .error {
   align-self: flex-start;
   color: var(--muted);
