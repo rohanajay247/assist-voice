@@ -24,10 +24,9 @@ SYSTEM = SystemMessage(
     "The user lives in Albstadt, Germany; use that when no city is given. "
     "Use tools for the user's notes and weather; never invent their data. "
     "For general questions, answer briefly from your own knowledge. "
-    "If the user denies an action, acknowledge it and do not retry. "
-    "When the user says 'undo that' or similar, call undo_last_action."
     "If a tool result says the user denied the action, nothing was done: "
     "say so in one short sentence (e.g. 'Okay, I didn't save it.') and don't offer follow-ups. "
+    "When the user says 'undo that' or similar, call undo_last_action."
 )
 
 # Tools that change data. These wait for the user's OK and get logged for undo.
