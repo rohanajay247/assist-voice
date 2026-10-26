@@ -16,6 +16,7 @@ interface Message {
 interface ChatResponse {
   reply: string;
   tool_calls: ToolCall[];
+  pending?: ToolCall[] | null; // calls waiting for the user's OK
 }
 
 const API_URL = import.meta.env.VITE_API_URL as string;
@@ -54,16 +55,13 @@ function LogoMark() {
   );
 }
 
-// Day 2: the server keeps the history (LangGraph checkpointer).
-// We send only the thread id and the new message.
-async function sendChat(
-  threadId: string,
-  message: string,
-): Promise<ChatResponse> {
-  const res = await fetch(`${API_URL}/chat`, {
+// The server keeps the history (LangGraph checkpointer).
+// /chat sends a new message, /approve answers a pending approval.
+async function post(path: string, body: unknown): Promise<ChatResponse> {
+  const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ thread_id: threadId, message }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -72,7 +70,8 @@ async function sendChat(
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]); // display only
   const [input, setInput] = useState("");
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState(false); // request in flight
+  const [approval, setApproval] = useState<ToolCall[] | null>(null); // waiting for OK
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -82,29 +81,46 @@ export default function App() {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, pending, error]);
+  }, [messages, pending, error, approval]);
 
-  async function send(text: string) {
-    const content = text.trim();
-    if (!content || pending) return;
+  // Either the graph paused for approval, or it finished with a reply
+  function show(data: ChatResponse) {
+    if (data.pending && data.pending.length > 0) {
+      setApproval(data.pending);
+      return;
+    }
+    setApproval(null);
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: data.reply, toolCalls: data.tool_calls },
+    ]);
+  }
 
-    const next: Message[] = [...messages, { role: "user", content }];
-    setMessages(next);
-    setInput("");
+  async function run(request: () => Promise<ChatResponse>) {
     setError(null);
     setPending(true);
     try {
-      const data = await sendChat(threadId.current, content);
-      setMessages([
-        ...next,
-        { role: "assistant", content: data.reply, toolCalls: data.tool_calls },
-      ]);
+      show(await request());
     } catch {
       setError("Couldn’t reach Assist. Try again.");
     } finally {
       setPending(false);
       inputRef.current?.focus();
     }
+  }
+
+  function send(text: string) {
+    const content = text.trim();
+    // While an approval is open, the graph is paused: answer it first
+    if (!content || pending || approval) return;
+    setMessages((prev) => [...prev, { role: "user", content }]);
+    setInput("");
+    run(() => post("/chat", { thread_id: threadId.current, message: content }));
+  }
+
+  function decide(approved: boolean) {
+    if (pending) return;
+    run(() => post("/approve", { thread_id: threadId.current, approved }));
   }
 
   function onSubmit(e: FormEvent) {
@@ -161,6 +177,35 @@ export default function App() {
             ),
           )}
 
+          {approval && (
+            <div className="msg-assistant">
+              Okay to do this?
+              <div className="tools">
+                {approval.map((tc, j) => (
+                  <span key={j} className="tool">
+                    {formatToolCall(tc)}
+                  </span>
+                ))}
+              </div>
+              <div className="examples">
+                <button
+                  className="example"
+                  disabled={pending}
+                  onClick={() => decide(true)}
+                >
+                  Approve
+                </button>
+                <button
+                  className="example"
+                  disabled={pending}
+                  onClick={() => decide(false)}
+                >
+                  Deny
+                </button>
+              </div>
+            </div>
+          )}
+
           {pending && (
             <div className="dots" aria-label="Waiting for reply">
               <span />
@@ -181,8 +226,9 @@ export default function App() {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Message Assist"
+            placeholder={approval ? "Approve or deny first" : "Message Assist"}
             aria-label="Message"
+            disabled={!!approval}
             autoFocus
           />
           <button
@@ -210,7 +256,7 @@ export default function App() {
           <button
             type="submit"
             className="icon-btn send"
-            disabled={!input.trim() || pending}
+            disabled={!input.trim() || pending || !!approval}
             aria-label="Send"
           >
             <svg
