@@ -1,15 +1,20 @@
 import asyncio
+import json
 import uuid
 from typing import Literal
 
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_litellm import ChatLiteLLM
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.types import Command, interrupt  # NEW (Day 2): approvals
+from langgraph.types import Command, interrupt
+
+from backend.assist.actions import last_action, log_action, mark_undone  # NEW: undo log
 
 load_dotenv()  # loads GEMINI_API_KEY from .env
 
@@ -19,10 +24,11 @@ SYSTEM = SystemMessage(
     "The user lives in Albstadt, Germany; use that when no city is given. "
     "Use tools for the user's notes and weather; never invent their data. "
     "For general questions, answer briefly from your own knowledge. "
-    "If the user denies an action, acknowledge it and do not retry."
+    "If the user denies an action, acknowledge it and do not retry. "
+    "When the user says 'undo that' or similar, call undo_last_action."
 )
 
-# NEW: tools that change data. These wait for the user's OK; all others run directly.
+# Tools that change data. These wait for the user's OK and get logged for undo.
 WRITE_TOOLS = {"add_note", "delete_note"}
 DENIED = "User denied this action."
 
@@ -44,7 +50,7 @@ client = MultiServerMCPClient(
 
 
 async def approval(state: MessagesState) -> Command[Literal["tools", "agent"]]:
-    """NEW: the safety layer. Sits between the brain and the hands.
+    """The safety layer. Sits between the brain and the hands.
 
     Read-only calls pass straight through. Calls that change data pause the
     graph with interrupt() until the user approves or denies.
@@ -53,18 +59,14 @@ async def approval(state: MessagesState) -> Command[Literal["tools", "agent"]]:
     """
     calls = state["messages"][-1].tool_calls
 
-    # Only reading? No need to ask.
     if not any(c["name"] in WRITE_TOOLS for c in calls):
         return Command(goto="tools")
 
-    # Pause. The payload is what the UI shows; the return value is the user's answer.
     decision = interrupt([{"name": c["name"], "args": c["args"]} for c in calls])
 
     if decision == "approve":
         return Command(goto="tools")
 
-    # Denied: every tool call needs an answer, or Gemini errors on the next call.
-    # Tell the model "no" and let it reply to the user.
     return Command(
         goto="agent",
         update={
@@ -75,29 +77,94 @@ async def approval(state: MessagesState) -> Command[Literal["tools", "agent"]]:
     )
 
 
+# ---------- NEW (Day 2): undo ----------
+
+def _text(content) -> str:
+    """MCP results arrive as a string or as a list of content blocks."""
+    if isinstance(content, str):
+        return content
+    return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+
+
+def reverse_of(name: str, result) -> tuple[str, dict] | None:
+    """The action that cancels this one, built from the tool's result.
+
+    add_note returns {"id", "text", "created_at"}  -> delete_note(id)
+    delete_note returns {"deleted": true, "id", "text", ...} -> add_note(text)
+    """
+    try:
+        data = json.loads(_text(result))
+    except json.JSONDecodeError:
+        return None  # unexpected result: nothing we can safely reverse
+
+    if name == "add_note":
+        return "delete_note", {"id": data["id"]}
+    if name == "delete_note" and data.get("deleted"):
+        return "add_note", {"text": data["text"]}
+    return None
+
+
+async def record(state: MessagesState, config: RunnableConfig):
+    """Runs after every tool batch: log each successful change with its reverse."""
+    messages = state["messages"]
+    # The tool results sit right after the AIMessage that asked for them
+    ai_index = max(i for i, m in enumerate(messages) if isinstance(m, AIMessage))
+    calls = {c["id"]: c for c in messages[ai_index].tool_calls}
+    thread_id = config["configurable"]["thread_id"]
+
+    for m in messages[ai_index + 1:]:
+        if not isinstance(m, ToolMessage) or m.name not in WRITE_TOOLS:
+            continue
+        if m.status == "error":
+            continue  # a failed change has nothing to undo
+        reverse = reverse_of(m.name, m.content)
+        if reverse:
+            reverse_tool, reverse_args = reverse
+            log_action(thread_id, m.name, calls[m.tool_call_id]["args"], reverse_tool, reverse_args)
+
+    return {}  # logging only, no change to the conversation
+
+
 async def build_graph():
     """Connect to the MCP servers, attach their tools to Gemini, return the compiled graph."""
     tools = await client.get_tools()
     print("Tools:", [t.name for t in tools])
+    tools_by_name = {t.name: t for t in tools}
+
+    # NEW: a local tool (not MCP). Gemini calls it like any other tool.
+    # Not in WRITE_TOOLS: no approval (it IS the safety net) and not logged,
+    # so undoing never creates a new undoable action.
+    @tool
+    async def undo_last_action(config: RunnableConfig) -> str:
+        """Undo the most recent change Assist made (a note added or deleted).
+        Use when the user says 'undo that', 'take that back' or similar."""
+        action = last_action(config["configurable"]["thread_id"])
+        if action is None:
+            return "Nothing to undo."
+        await tools_by_name[action["reverse_tool"]].ainvoke(action["reverse_args"])
+        mark_undone(action["id"])
+        return f"Undid {action['tool']} {action['args']}."
+
+    all_tools = tools + [undo_last_action]
 
     # The brain: Gemini, told which tools exist (their names, docstrings, schemas)
-    model = ChatLiteLLM(model="gemini/gemini-3.1-flash-lite").bind_tools(tools)
+    model = ChatLiteLLM(model="gemini/gemini-3.1-flash-lite").bind_tools(all_tools)
 
-    # Node 1, "agent": send the conversation to Gemini, add its reply to the state
+    # Node "agent": send the conversation to Gemini, add its reply to the state
     async def agent(state: MessagesState):
         response = await model.ainvoke([SYSTEM] + state["messages"])
         return {"messages": [response]}
 
-    # Build the graph
-    g = StateGraph(MessagesState)          # state = a list of messages
-    g.add_node("agent", agent)             # brain
-    g.add_node("approval", approval)       # NEW: safety layer
-    g.add_node("tools", ToolNode(tools))   # hands: runs whatever tool Gemini asked for
-    g.add_edge(START, "agent")             # always start with the brain
-    # CHANGED: a tool call now goes to "approval" first, not straight to "tools".
-    # approval routes itself with Command(goto=...), so it needs no edges.
+    # Build the graph:  agent → approval → tools → record → agent
+    g = StateGraph(MessagesState)
+    g.add_node("agent", agent)                 # brain
+    g.add_node("approval", approval)           # safety layer
+    g.add_node("tools", ToolNode(all_tools))   # hands
+    g.add_node("record", record)               # NEW: undo log
+    g.add_edge(START, "agent")
     g.add_conditional_edges("agent", tools_condition, {"tools": "approval", END: END})
-    g.add_edge("tools", "agent")           # after a tool runs, back to the brain
+    g.add_edge("tools", "record")              # CHANGED: was tools → agent
+    g.add_edge("record", "agent")
 
     # The checkpointer saves state per thread_id; interrupt() needs it to resume.
     return g.compile(checkpointer=MemorySaver())
@@ -115,7 +182,7 @@ async def main():
 
         result = await graph.ainvoke({"messages": [HumanMessage(text)]}, config)
 
-        # NEW: the graph paused for approval → ask, then resume the same thread
+        # The graph paused for approval → ask, then resume the same thread
         while "__interrupt__" in result:
             for p in result["__interrupt__"][0].value:
                 print(f"  ? {p['name']}({p['args']})")
@@ -123,9 +190,8 @@ async def main():
             decision = "approve" if answer == "y" else "deny"
             result = await graph.ainvoke(Command(resume=decision), config)
 
-        messages = result["messages"]  # the whole thread
+        messages = result["messages"]
 
-        # Print only this turn's tool calls: everything after the last user message
         start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
         for m in messages[start + 1:]:
             for tc in getattr(m, "tool_calls", None) or []:
