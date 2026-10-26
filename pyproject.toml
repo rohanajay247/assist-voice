@@ -12,5 +12,6 @@ dependencies = [
     "litellm>=1.101,<1.106",
     "mcp[cli]>=1.30.0",
     "python-dotenv>=1.2.4",
+    "python-multipart>=0.0.32",
     "uvicorn>=0.54.0",
 ]

@@ -9,6 +9,7 @@
   --border-strong: #d4d4cf;
   --danger: #a8453c;
   --success: #3a7a55;
+  --recording: #d23b2e;
 
   --sans: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -26,6 +27,7 @@
     --border-strong: #3a3a3a;
     --danger: #d9837a;
     --success: #6fbf8b;
+    --recording: #e5574a;
   }
 }
 
@@ -344,11 +346,54 @@ input {
 .mic {
   background: none;
   color: var(--muted);
+  /* hold to talk: no scrolling, text selection or tap flash while pressed */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mic:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .mic:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.mic.is-recording {
+  background: var(--recording);
+  color: #ffffff;
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+.mic.is-transcribing {
+  opacity: 1;
+  color: var(--accent);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Header speaker toggle */
+
+.speaker {
+  margin-left: auto;
+  background: none;
+  color: var(--muted);
+}
+
+.speaker:hover {
+  color: var(--text);
 }
 
 @media (prefers-reduced-motion: reduce) {

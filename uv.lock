@@ -215,6 +215,7 @@ dependencies = [
     { name = "litellm" },
     { name = "mcp", extra = ["cli"] },
     { name = "python-dotenv" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 
@@ -229,6 +230,7 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.101,<1.106" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.30.0" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 

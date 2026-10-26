@@ -40,6 +40,104 @@ function formatToolCall({ name, args }: ToolCall): string {
   return [name, ...parts].join(" · ");
 }
 
+// --- Voice -----------------------------------------------------------------
+
+const MIN_RECORDING_MS = 300; // shorter presses are treated as accidental taps
+const MUTE_KEY = "assist.muted";
+
+const YES_WORDS = ["yes", "yeah", "okay", "ok", "sure", "ja", "do it"];
+const NO_WORDS = ["no", "nope", "cancel", "nein", "stop"];
+
+// Whisper returns "Yes." or "Okay, do it!", so compare lowercase words only.
+// A phrase counts if it is, or starts with, one of the words ("yes please").
+function matchYesNo(transcript: string): "yes" | "no" | null {
+  const text = transcript
+    .toLowerCase()
+    .replace(/[^\p{L}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const hit = (words: string[]) =>
+    words.some((w) => text === w || text.startsWith(w + " "));
+  if (hit(NO_WORDS)) return "no";
+  if (hit(YES_WORDS)) return "yes";
+  return null;
+}
+
+// "add_note {text: 'Buy milk'}" -> "Add note: Buy milk."
+function describeCall({ name, args }: ToolCall): string {
+  const action = name.replace(/_/g, " ");
+  const details = Object.values(args).filter(
+    (v): v is string => typeof v === "string" && v !== "",
+  );
+  const sentence = details.length ? `${action}: ${details.join(", ")}` : action;
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1) + ".";
+}
+
+// Rough guess so German replies get a German voice when one is installed
+function guessLang(text: string): string {
+  return /[äöüß]|\b(und|ist|nicht|das|ich|der|die|morgen|wetter)\b/i.test(text)
+    ? "de-DE"
+    : "en-US";
+}
+
+function speak(text: string) {
+  if (!("speechSynthesis" in window) || !text.trim()) return;
+  window.speechSynthesis.cancel(); // never queue up behind an old reply
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = guessLang(text);
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopSpeaking() {
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+}
+
+// localStorage can throw (private mode, blocked storage), so it is best effort
+function loadMuted(): boolean {
+  try {
+    return localStorage.getItem(MUTE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveMuted(muted: boolean) {
+  try {
+    localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+  } catch {
+    // ignore: the toggle still works for this page load
+  }
+}
+
+// First format this browser can record; Groq reads the format from the extension
+function pickMimeType(): string {
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  return types.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+}
+
+function extensionFor(mimeType: string): string {
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mp4")) return "mp4";
+  return "webm";
+}
+
+async function transcribe(audio: Blob): Promise<string> {
+  const form = new FormData();
+  form.append("audio", audio, `speech.${extensionFor(audio.type)}`);
+  const res = await fetch(`${API_URL}/transcribe`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data: { text: string } = await res.json();
+  return data.text;
+}
+
+function micError(e: unknown): string {
+  const name = e instanceof DOMException ? e.name : "";
+  if (name === "NotAllowedError" || name === "SecurityError")
+    return "Microphone access is blocked. Allow it in your browser settings to talk.";
+  if (name === "NotFoundError") return "No microphone found.";
+  return "Couldn’t start the microphone.";
+}
+
 // Same mark as public/favicon.svg, drawn on a 16px grid so the bars stay crisp
 function LogoMark() {
   return (
@@ -78,11 +176,16 @@ export default function App() {
   const [pending, setPending] = useState(false); // request in flight
   const [approval, setApproval] = useState<ToolCall[] | null>(null); // waiting for OK
   const [error, setError] = useState<string | null>(null);
+  const [voice, setVoice] = useState<"idle" | "starting" | "recording" | "transcribing">("idle");
+  const [muted, setMuted] = useState(loadMuted);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // One conversation per page load. A ref keeps the same value across
   // renders without causing a re-render.
   const threadId = useRef(crypto.randomUUID());
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const holdingRef = useRef(false); // mic button still held down
+  const startedAtRef = useRef(0);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -90,8 +193,11 @@ export default function App() {
 
   // Either the graph paused for approval, or it finished with a reply
   function show(data: ChatResponse) {
+    // Read through the ref: the request may have started before a mute toggle
+    const quiet = latest.current.muted;
     if (data.pending && data.pending.length > 0) {
       setApproval(data.pending);
+      if (!quiet) speak(`Okay to do this? ${data.pending.map(describeCall).join(" ")}`);
       return;
     }
     setApproval(null);
@@ -99,6 +205,7 @@ export default function App() {
       ...prev,
       { role: "assistant", content: data.reply, toolCalls: data.tool_calls },
     ]);
+    if (!quiet) speak(data.reply);
   }
 
   async function run(request: () => Promise<ChatResponse>) {
@@ -133,13 +240,143 @@ export default function App() {
     send(input);
   }
 
+  // A recording finishes in callbacks created on an earlier render, so they
+  // reach the current state and handlers through this ref.
+  const latest = useRef({ approval, muted, send, decide });
+  useEffect(() => {
+    latest.current = { approval, muted, send, decide };
+  });
+
+  function toggleMuted() {
+    const next = !muted;
+    setMuted(next);
+    saveMuted(next);
+    if (next) stopSpeaking();
+  }
+
+  // Hold to talk: press starts recording, release stops it and transcribes
+  async function startRecording() {
+    if (voice !== "idle" || pending) return;
+    holdingRef.current = true;
+    stopSpeaking();
+    setError(null);
+    setVoice("starting");
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      setVoice("idle");
+      setError(micError(e));
+      return;
+    }
+    // Released while the browser was still opening the mic (or asking permission)
+    if (!holdingRef.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      setVoice("idle");
+      return;
+    }
+
+    const mimeType = pickMimeType();
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstart = (e) => {
+      startedAtRef.current = e.timeStamp;
+    };
+    recorder.onstop = (e) => {
+      stream.getTracks().forEach((t) => t.stop()); // turn off the mic indicator
+      const duration = e.timeStamp - startedAtRef.current;
+      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      if (duration < MIN_RECORDING_MS || blob.size === 0) {
+        setVoice("idle");
+        return;
+      }
+      handleRecording(blob);
+    };
+    recorderRef.current = recorder;
+    recorder.start();
+    setVoice("recording");
+  }
+
+  function stopRecording() {
+    holdingRef.current = false;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    recorderRef.current = null;
+  }
+
+  async function handleRecording(blob: Blob) {
+    setVoice("transcribing");
+    let text: string;
+    try {
+      text = (await transcribe(blob)).trim();
+    } catch {
+      setVoice("idle");
+      setError("Couldn’t transcribe that. Try again.");
+      return;
+    }
+    setVoice("idle");
+    if (!text) {
+      setError("Didn’t catch that. Try again.");
+      return;
+    }
+
+    const { approval, send, decide } = latest.current;
+    // While an approval is open, the spoken answer goes to the card
+    if (approval) {
+      const answer = matchYesNo(text);
+      if (answer) decide(answer === "yes");
+      else setError("Say yes or no");
+      return;
+    }
+    send(text);
+  }
+
   const empty = messages.length === 0 && !pending && !error;
+  const holdKey = (key: string) => key === " " || key === "Enter";
+  const placeholder =
+    voice === "recording" || voice === "starting"
+      ? "Listening…"
+      : voice === "transcribing"
+        ? "Transcribing…"
+        : approval
+          ? "Approve or deny first"
+          : "Message Assist";
 
   return (
     <div className="app">
       <header className="column header">
         <LogoMark />
         <span>Assist</span>
+        <button
+          type="button"
+          className="icon-btn speaker"
+          onClick={toggleMuted}
+          aria-pressed={!muted}
+          aria-label={muted ? "Read replies aloud" : "Stop reading replies aloud"}
+          title={muted ? "Spoken replies off" : "Spoken replies on"}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M11 5 6 9H3v6h3l5 4V5z" />
+            {muted ? (
+              <path d="m16 9 5 6M21 9l-5 6" />
+            ) : (
+              <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+            )}
+          </svg>
+        </button>
       </header>
 
       <main className="scroll">
@@ -231,17 +468,46 @@ export default function App() {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={approval ? "Approve or deny first" : "Message Assist"}
+            placeholder={placeholder}
             aria-label="Message"
             disabled={!!approval}
             autoFocus
           />
           <button
             type="button"
-            className="icon-btn mic"
-            disabled
-            aria-label="Voice input (coming soon)"
-            title="Voice input (coming soon)"
+            className={`icon-btn mic${voice === "recording" ? " is-recording" : ""}${
+              voice === "transcribing" ? " is-transcribing" : ""
+            }`}
+            disabled={pending || voice === "transcribing"}
+            aria-label="Hold to talk"
+            aria-pressed={voice === "recording"}
+            title="Hold to talk"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              // Keep getting pointerup even if the finger slides off the button
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId);
+              } catch {
+                // capture is a nicety; recording still works without it
+              }
+              startRecording();
+            }}
+            onPointerUp={stopRecording}
+            onPointerCancel={stopRecording}
+            onContextMenu={(e) => e.preventDefault()} // no long-press menu on mobile
+            onKeyDown={(e) => {
+              if (holdKey(e.key) && !e.repeat) {
+                e.preventDefault();
+                startRecording();
+              }
+            }}
+            onKeyUp={(e) => {
+              if (holdKey(e.key)) {
+                e.preventDefault();
+                stopRecording();
+              }
+            }}
           >
             <svg
               width="18"

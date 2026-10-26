@@ -6,11 +6,14 @@ Day 2:
 - Approvals. When the graph pauses at interrupt() (a tool that changes data),
   /chat returns `pending` instead of a reply. The UI shows Approve/Deny and
   calls /approve, which resumes the same thread with Command(resume=...).
+- Voice. /transcribe turns a push-to-talk recording into text with Groq Whisper.
 """
+import os
 from contextlib import asynccontextmanager
 
+import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langfuse.langchain import CallbackHandler
@@ -23,6 +26,10 @@ load_dotenv()
 
 graph = None
 langfuse_handler = CallbackHandler()
+
+GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+STT_MODEL = "whisper-large-v3-turbo"
+MAX_AUDIO_BYTES = 25 * 1024 * 1024  # Groq's upload limit on the free tier
 
 
 @asynccontextmanager
@@ -62,6 +69,10 @@ class ChatResponse(BaseModel):
     reply: str
     tool_calls: list[ToolCall]          # calls that actually ran this turn
     pending: list[ToolCall] | None = None  # NEW: calls waiting for approval
+
+
+class TranscribeResponse(BaseModel):
+    text: str
 
 
 def make_config(thread_id: str) -> dict:
@@ -125,3 +136,41 @@ async def approve(req: ApproveRequest) -> ChatResponse:
     decision = "approve" if req.approved else "deny"
     result = await graph.ainvoke(Command(resume=decision), make_config(req.thread_id))
     return to_response(result)
+
+@app.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
+    # One push-to-talk recording (webm/ogg from MediaRecorder) -> text.
+    # No language is sent, so Whisper auto-detects English or German.
+    data = await audio.read()
+    if not data:
+        raise HTTPException(400, "Empty audio")
+    if len(data) > MAX_AUDIO_BYTES:
+        raise HTTPException(413, "Audio is larger than 25 MB")
+
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        raise HTTPException(500, "GROQ_API_KEY is not set")
+
+    # Groq reads the format from the file extension, so keep the browser's name
+    filename = audio.filename or "speech.webm"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.post(
+                GROQ_STT_URL,
+                headers={"Authorization": f"Bearer {key}"},
+                files={"file": (filename, data, audio.content_type or "audio/webm")},
+                data={"model": STT_MODEL, "response_format": "json"},
+            )
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Could not reach Groq: {e.__class__.__name__}")
+
+    if res.status_code != 200:
+        try:
+            detail = res.json()["error"]["message"]
+        except Exception:
+            detail = res.text[:200]
+        # 400 from Groq means it couldn't use the audio; anything else is on their side
+        status = 422 if res.status_code == 400 else 502
+        raise HTTPException(status, f"Groq error {res.status_code}: {detail}")
+
+    return TranscribeResponse(text=res.json().get("text", "").strip())
