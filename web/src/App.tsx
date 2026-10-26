@@ -27,12 +27,17 @@ const EXAMPLES = [
   "What notes do I have?",
 ];
 
-// "get_weather · Sigmaringen · 1": tool name, then its argument values
+// "get_weather · Albstadt · days 2": tool name, then its arguments.
+// Strings read fine alone; other values get their key so "2" means something.
 function formatToolCall({ name, args }: ToolCall): string {
-  const values = Object.values(args)
-    .filter((v) => v !== null && v !== undefined && v !== "")
-    .map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v)));
-  return [name, ...values].join(" · ");
+  const parts = Object.entries(args)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .map(([k, v]) =>
+      typeof v === "string"
+        ? v
+        : `${k} ${typeof v === "object" ? JSON.stringify(v) : String(v)}`,
+    );
+  return [name, ...parts].join(" · ");
 }
 
 // Same mark as public/favicon.svg, drawn on a 16px grid so the bars stay crisp
@@ -187,16 +192,16 @@ export default function App() {
                   </span>
                 ))}
               </div>
-              <div className="examples">
+              <div className="approval-actions">
                 <button
-                  className="example"
+                  className="btn btn-approve"
                   disabled={pending}
                   onClick={() => decide(true)}
                 >
                   Approve
                 </button>
                 <button
-                  className="example"
+                  className="btn btn-deny"
                   disabled={pending}
                   onClick={() => decide(false)}
                 >

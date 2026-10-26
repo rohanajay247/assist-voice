@@ -5,7 +5,10 @@
   --border: #e5e5e2;
   --bubble: #f0f0ec;
   --accent: #2f6feb;
+  --accent-hover: #2560d4;
   --on-accent: #ffffff;
+  --border-strong: #d4d4cf;
+  --danger: #a8453c;
 
   --sans: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -20,6 +23,9 @@
     --border: #2a2a2a;
     --bubble: #222222;
     --accent: #5b8def;
+    --accent-hover: #4a7bdc;
+    --border-strong: #3a3a3a;
+    --danger: #d9837a;
   }
 }
 
@@ -230,6 +236,50 @@ input {
 .example:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* Approval card */
+
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-approve {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn-approve:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-deny {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--muted);
+}
+
+.btn-deny:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 /* Composer */
