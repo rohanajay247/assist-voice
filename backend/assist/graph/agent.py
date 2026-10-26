@@ -26,11 +26,13 @@ SYSTEM = SystemMessage(
     "For general questions, answer briefly from your own knowledge. "
     "If the user denies an action, acknowledge it and do not retry. "
     "When the user says 'undo that' or similar, call undo_last_action."
+    "If a tool result says the user denied the action, nothing was done: "
+    "say so in one short sentence (e.g. 'Okay, I didn't save it.') and don't offer follow-ups. "
 )
 
 # Tools that change data. These wait for the user's OK and get logged for undo.
 WRITE_TOOLS = {"add_note", "delete_note"}
-DENIED = "User denied this action."
+DENIED = "User denied this action. Nothing was changed."
 
 # One entry per MCP server: how to start it and how to talk to it
 client = MultiServerMCPClient(
