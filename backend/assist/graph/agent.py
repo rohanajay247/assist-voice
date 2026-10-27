@@ -214,8 +214,18 @@ async def build_graph():
         action = last_action(config["configurable"]["thread_id"])
         if action is None:
             return "Nothing to undo."
-        await tools_by_name[action["reverse_tool"]].ainvoke(action["reverse_args"])
+        result = await tools_by_name[action["reverse_tool"]].ainvoke(action["reverse_args"])
+        try:
+            data = json.loads(_text(result))
+        except json.JSONDecodeError:
+            data = {}
+        if isinstance(data, dict) and "error" in data:
+            # The reverse failed: keep the entry so it isn't lost, and say why
+            return f"Couldn't undo {action['tool']}: {data['error']}"
         mark_undone(action["id"])
+        if action["reverse_tool"] == "create_event":
+            # Restored events get a NEW id; put it in the chat so it gets used next time
+            return f"Undid {action['tool']}: restored '{data['title']}' with new id {data['id']}."
         return f"Undid {action['tool']} {action['args']}."
 
     all_tools = tools + [undo_last_action]

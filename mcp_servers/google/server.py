@@ -57,6 +57,28 @@ def _calendar():
     return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
+STALE_ID_ERROR = (
+    "Event not found or already deleted. "
+    "Use list_events or search_events to find the current id."
+)
+
+
+class StaleEventError(Exception):
+    pass
+
+
+def _live_event(calendar, event_id: str) -> dict:
+    """Fetch an event, refusing ones that are already deleted.
+
+    Google still returns deleted events for a while, with status "cancelled",
+    so an old id from chat history can look valid. Restored events get a new id.
+    """
+    event = calendar.events().get(calendarId=CALENDAR, eventId=event_id).execute()
+    if event.get("status") == "cancelled":
+        raise StaleEventError
+    return event
+
+
 def google_tool(fn):
     """Turn sign-in and API failures into {"error": ...} results the model can read."""
     @functools.wraps(fn)
@@ -65,9 +87,11 @@ def google_tool(fn):
             return fn(*args, **kwargs)
         except AuthError as e:
             return {"error": str(e)}
+        except StaleEventError:
+            return {"error": "Event already deleted. Use list_events or search_events to find the current id."}
         except HttpError as e:
             if e.resp.status in (404, 410):
-                return {"error": "Event not found."}
+                return {"error": STALE_ID_ERROR}
             return {"error": f"Google Calendar error {e.resp.status}: {e.reason}"}
         except ValueError as e:
             return {"error": f"Invalid date or time: {e}"}
@@ -140,8 +164,7 @@ def search_events(query: str, days_ahead: int = 30) -> dict:
 @google_tool
 def get_event(event_id: str) -> dict:
     """Get one calendar event by its id (from list_events or search_events)."""
-    event = _calendar().events().get(calendarId=CALENDAR, eventId=event_id).execute()
-    return _compact(event)
+    return _compact(_live_event(_calendar(), event_id))
 
 
 @mcp.tool()
@@ -164,7 +187,7 @@ def delete_event(event_id: str) -> dict:
     """Delete a calendar event by its id. Find the id with list_events or
     search_events first. Returns the deleted event so it can be restored."""
     calendar = _calendar()
-    event = calendar.events().get(calendarId=CALENDAR, eventId=event_id).execute()
+    event = _live_event(calendar, event_id)  # refuses ids of already-deleted events
     calendar.events().delete(calendarId=CALENDAR, eventId=event_id).execute()
     return {"deleted": True, **_compact(event)}
 
