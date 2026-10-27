@@ -225,3 +225,6 @@ __marimo__/
 # Web
 web/node_modules/
 web/.env
+
+# Secrets: OAuth client and tokens
+secrets/
