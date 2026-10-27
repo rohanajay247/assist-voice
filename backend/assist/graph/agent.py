@@ -34,6 +34,8 @@ SYSTEM = SystemMessage(
 
 # Tools that change data. These wait for the user's OK and get logged for undo.
 WRITE_TOOLS = {"add_note", "delete_note"}
+# Tools that run without asking. Anything NOT here needs approval (default-deny).
+SAFE_TOOLS = {"list_notes", "search_notes", "get_weather", "undo_last_action"}
 DENIED = "User denied this action. Nothing was changed."
 
 # One entry per MCP server: how to start it and how to talk to it
@@ -80,7 +82,7 @@ async def approval(state: MessagesState) -> Command[Literal["tools", "agent"]]:
     """
     calls = state["messages"][-1].tool_calls
 
-    if not any(c["name"] in WRITE_TOOLS for c in calls):
+    if all(c["name"] in SAFE_TOOLS for c in calls):
         return Command(goto="tools")
 
     decision = interrupt([{"name": c["name"], "args": c["args"]} for c in calls])
@@ -151,12 +153,12 @@ async def build_graph():
     tools = await client.get_tools()
     print(f"Tools ({len(tools)}):", [t.name for t in tools])
 
-    # Safety check: write-looking GitHub tools mean read-only failed. Don't start.
     if GITHUB_PAT:
         github_tools = await client.get_tools(server_name="github")
         writes = [t.name for t in github_tools if t.name.startswith(WRITE_PREFIXES)]
         if writes:
             raise RuntimeError(f"GitHub server exposed write tools: {writes}")
+        SAFE_TOOLS.update(t.name for t in github_tools)  # passed the read-only check
     tools_by_name = {t.name: t for t in tools}
 
     # NEW: a local tool (not MCP). Gemini calls it like any other tool.
