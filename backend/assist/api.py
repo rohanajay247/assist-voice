@@ -21,7 +21,7 @@ from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from backend.assist.graph.agent import DENIED, WRITE_TOOLS, build_graph
+from backend.assist.graph.agent import DENIED, SAFE_TOOLS, WRITE_TOOLS, build_graph
 
 load_dotenv()
 
@@ -113,8 +113,8 @@ def build_steps(turn: list, interrupted: bool) -> list[Step]:
         if isinstance(m, AIMessage):
             for tc in m.tool_calls:
                 steps.append(Step(kind="plan", label=f"Decided to call {tc['name']}", status="ok"))
-                if tc["name"] not in WRITE_TOOLS:
-                    continue
+                if tc["name"] in SAFE_TOOLS:
+                    continue  # safe tools skip approval
                 result = results.get(tc["id"])
                 if result is not None:
                     status = "denied" if result.content == DENIED else "ok"
