@@ -27,6 +27,7 @@ TZ = ZoneInfo(TZ_NAME)
 CALENDAR = "primary"
 MAX_RESULTS = 25
 LOGIN_HINT = "Run `uv run python scripts/google_auth.py` to sign in to Google."
+TIME_FORMAT_HINT = "Use local Berlin time without offset, e.g. 2026-10-29T12:00"
 
 mcp = FastMCP("google")
 
@@ -98,14 +99,25 @@ def google_tool(fn):
     return wrapper
 
 
+def _local(t: dict) -> str | None:
+    """Calendar time -> the format create_event accepts: '2026-10-29' or Berlin '2026-10-29T12:00'.
+
+    Results use the same format as inputs, so Gemini never sees an offset to
+    copy, and undo can pass a deleted event's times straight to create_event.
+    """
+    if "dateTime" in t:
+        return datetime.fromisoformat(t["dateTime"]).astimezone(TZ).strftime("%Y-%m-%dT%H:%M")
+    return t.get("date")
+
+
 def _compact(event: dict) -> dict:
     """Only the fields Assist needs, so results stay short."""
     start, end = event.get("start", {}), event.get("end", {})
     out = {
         "id": event["id"],
         "title": event.get("summary", "(no title)"),
-        "start": start.get("dateTime", start.get("date")),
-        "end": end.get("dateTime", end.get("date")),
+        "start": _local(start),
+        "end": _local(end),
         "description": event.get("description", ""),
     }
     if event.get("location"):
@@ -113,15 +125,25 @@ def _compact(event: dict) -> dict:
     return out
 
 
-def _when(value: str) -> dict:
-    """ISO string -> Calendar time. 'YYYY-MM-DD' is all-day; no offset means Berlin time."""
+def _parse(value: str) -> date | datetime:
+    """'2026-10-29' -> date (all-day); '2026-10-29T12:00' -> datetime in Berlin.
+
+    Rejects offsets and 'Z': Gemini's own UTC conversions were wrong
+    ('12 pm' became 13:00Z), so the server does all time zone handling.
+    """
     if "T" not in value:
-        date.fromisoformat(value)  # raises ValueError if it isn't a date
-        return {"date": value}
+        return date.fromisoformat(value)
     dt = datetime.fromisoformat(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=TZ)
-    return {"dateTime": dt.isoformat(), "timeZone": TZ_NAME}
+    if dt.tzinfo is not None:
+        raise ValueError(TIME_FORMAT_HINT)
+    return dt.replace(tzinfo=TZ)
+
+
+def _when(moment: date | datetime) -> dict:
+    """Parsed time -> Calendar API time."""
+    if isinstance(moment, datetime):  # check first: datetime is a subclass of date
+        return {"dateTime": moment.isoformat(), "timeZone": TZ_NAME}
+    return {"date": moment.isoformat()}
 
 
 def _events(days_ahead: int, query: str | None = None) -> dict:
@@ -171,10 +193,15 @@ def get_event(event_id: str) -> dict:
 @google_tool
 def create_event(title: str, start: str, end: str, description: str = "") -> dict:
     """Create an event on the user's Google Calendar.
-    `start` and `end` are ISO 8601, e.g. '2026-10-28T15:00' (Berlin time if no
-    offset is given). A plain date like '2026-10-28' makes an all-day event;
+    Times are local Berlin time WITHOUT offset or Z, e.g. '2026-10-29T12:00'.
+    Never convert to UTC. A plain date like '2026-10-29' makes an all-day event;
     for all-day events `end` is the day AFTER the last day."""
-    body = {"summary": title, "start": _when(start), "end": _when(end)}
+    start_at, end_at = _parse(start), _parse(end)
+    if isinstance(start_at, datetime) != isinstance(end_at, datetime):
+        return {"error": "Start and end must both be dates (all-day) or both be times."}
+    if end_at <= start_at:
+        return {"error": f"End ({end}) must be after start ({start})."}
+    body = {"summary": title, "start": _when(start_at), "end": _when(end_at)}
     if description:
         body["description"] = description
     event = _calendar().events().insert(calendarId=CALENDAR, body=body).execute()
