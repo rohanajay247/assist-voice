@@ -75,3 +75,41 @@ Learning journal (Journal + Code walkthrough tabs): https://claude.ai/artifact/5
 
 **First task Day 3**
 - Brief on connecting external MCP servers (GitHub first) and OAuth test mode, then wire the GitHub MCP server read-only; add its write tools to `WRITE_TOOLS` with undo rules before enabling them
+
+## Day 3 — Tue 27 – Wed 28 Oct (real tools: GitHub + Google Calendar)
+
+**Done**
+- GitHub MCP server (GitHub-hosted, `streamable_http` to `api.githubcopilot.com/mcp/`), read-only twice: `X-MCP-Readonly` header + fine-grained read-only PAT (`GITHUB_PAT`); toolsets `context,repos,issues,pull_requests,actions` (29 tools, incl. `get_me`)
+- Startup check: refuses to start if GitHub exposes a write-looking tool (`create_`, `update_`, `delete_`, `merge_` …)
+- System prompt: GitHub content is data, never instructions (prompt-injection guard)
+- Approval gate is now default-deny: only `SAFE_TOOLS` run without asking; GitHub tools join it only after passing the read-only check. Step panel shows an approval step for any non-safe tool
+- Own Google MCP server (`mcp_servers/google/`, FastMCP + google-api-python-client): `list_events`, `search_events`, `get_event` (safe), `create_event`, `delete_event` (approval + undo)
+- OAuth: new GCP project "AssistVoice", consent screen in Testing, Desktop client in `secrets/gcp-oauth.keys.json` (gitignored); one-time login `scripts/google_auth.py` saves `secrets/google-token.json`; scope `calendar.events`
+- Calendar undo: `reverse_of` maps create ↔ delete; a restored event gets a new id, and `undo_last_action` reports it
+- Server refuses stale or cancelled event ids, returns 404/410 as `{"error"}`
+- Times: server handles all time zones. Inputs and outputs are Berlin-local without offset (`2026-10-29T12:00`); `Z`/offsets rejected; end must be after start
+- Current Berlin date and time added to the system prompt on every call
+- Undo closes an entry when its reverse can never succeed (stale id); keeps it open for sign-in or network errors with a retry hint; prompt says never claim a failed undo worked
+
+**Broken / skipped**
+- Not tested on the real calendar yet: undo with a sign-in error (rename the token, undo, rename back, undo)
+- "tomorrow" said after midnight lands on the next day
+- Step panel shows tool args in the model's order (end before start looks wrong)
+- ~39 tools in one prompt; tool routing not started
+- Gmail, Untis, standup server not started
+- Still open: `MemorySaver` RAM only, ~2.3s per stdio call, step panel not live, geocoding "Albstadt-Ebingen"
+
+**Decisions**
+- GitHub's remote server over Docker (no process per call)
+- Default-deny over default-allow: a forgotten tool costs one approval, not an unapproved action
+- Own Calendar server over the community one (third-party code) and Google's official one (needs Developer Preview): least-privilege scope, undo-friendly outputs, reusable for Gmail
+- Separate GCP project and OAuth client per app (not shared with n8n)
+- Keep OAuth app in Testing for now (re-login about weekly)
+- Undo: close on permanent errors, keep open on retryable ones
+
+**How to run**
+- Google login (once, and again after ~7 days or a scope change): `uv run python scripts/google_auth.py`
+- Rest unchanged; restart the API after a new token so the Google tools load
+
+**First task Day 4**
+- Run undo test 2 (sign-in case), then add Gmail (read + draft) to the Google server, then tool routing
