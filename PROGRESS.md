@@ -113,3 +113,31 @@ Learning journal (Journal + Code walkthrough tabs): https://claude.ai/artifact/5
 
 **First task Day 4**
 - Run undo test 2 (sign-in case), then add Gmail (read + draft) to the Google server, then tool routing
+
+## Day 3 (continued) — Sat 31 Oct (Gmail, standup, tool routing)
+
+**Done**
+- Gmail on the Google server: `search_emails`, `get_thread` (safe), `create_draft`, `delete_draft` (approval + undo). No send tool. Scopes `gmail.readonly` + `gmail.compose`; signed in with the main account (calendar moved with it)
+- Draft layout: docstring + prompt ask for a real email layout; `_email_layout` puts greeting and sign-off on their own lines if Gemini sends one paragraph
+- Approval card shows an email preview (To, Subject, thread, body); short tool chips; spoken approval is a one-line summary. Replies are plain text with `- ` lists
+- Standup MCP server (`mcp_servers/standup/`): `get_git_activity(date_from, date_to)` over `STANDUP_REPOS`, filtered by `GIT_AUTHOR_EMAIL`, Berlin-local times, per-repo errors. `stdin=DEVNULL` on the git call fixed a hang inside MCP on Windows
+- `list_events` takes an optional `date_from`, so past days use real calendar data ("what did I do yesterday" = git + calendar)
+- Tool routing: `router` node before `agent`. Flash-Lite picks groups (notes, weather, calendar, email, code, standup) from the last 4 messages; the agent binds only those + last turn's groups + `undo_last_action`; bad router output → all tools. Graph: router → agent → approval → tools → record → agent
+
+**Broken / skipped**
+- Untis skipped: no export or API access at the uni
+- Undo test 2 (sign-in case) skipped; will happen naturally when the Testing token expires. Add as an eval case
+- Approval preview shows Gemini's body, Gmail gets the `_email_layout` version. Fix: run the layout in the approval step
+- Commits after midnight count to the next day in standup (option: day starts at 04:00)
+- Routing verified in Langfuse for weather only; follow-up ("delete it"), small talk (`[]`) and standup routing not confirmed yet
+- MyUniGuide not in `STANDUP_REPOS` yet
+- Still open: `MemorySaver` RAM only, ~2.3s per stdio call, step panel not live, "tomorrow" after midnight, step arg order, geocoding "Albstadt-Ebingen"
+
+**Decisions**
+- Gmail: drafts only, never send
+- Standup server returns git only; the agent combines it with calendar (MCP servers can't call each other)
+- Routing by a small LLM call (not keywords or embeddings); when unsure, give more tools, never fewer
+- Untis dropped rather than a manual timetable import
+
+**First task next session**
+- Day 7 first (never cut): eval suite on the current v1, then README with results and demo video. Then PWA + Cloudflare Tunnel if time allows
