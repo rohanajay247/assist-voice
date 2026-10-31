@@ -44,15 +44,59 @@ const EXAMPLES = [
 
 // "get_weather · Albstadt · days 2": tool name, then its arguments.
 // Strings read fine alone; other values get their key so "2" means something.
-function formatToolCall({ name, args }: ToolCall): string {
+// Args left out of the short label (still in the chip's title): an email body and
+// Gmail's raw message id say little in a one-line chip
+const LABEL_HIDDEN = new Set(["body", "reply_to_message_id"]);
+
+// Long values are cut to one short line; the chip's title has the full text.
+function formatToolCall({ name, args }: ToolCall, maxValue = 48): string {
+  const clip = (s: string) => {
+    const line = s.replace(/\s+/g, " ").trim();
+    return line.length > maxValue
+      ? `${line.slice(0, maxValue - 1).trimEnd()}…`
+      : line;
+  };
   const parts = Object.entries(args)
+    .filter(([k]) => maxValue > 100 || !LABEL_HIDDEN.has(k))
     .filter(([, v]) => v !== null && v !== undefined && v !== "")
     .map(([k, v]) =>
       typeof v === "string"
-        ? v
-        : `${k} ${typeof v === "object" ? JSON.stringify(v) : String(v)}`,
+        ? clip(v)
+        : `${k} ${clip(typeof v === "object" ? JSON.stringify(v) : String(v))}`,
     );
   return [name, ...parts].join(" · ");
+}
+
+// What a create_draft call will put in Gmail, laid out like an email
+function EmailPreview({ args }: { args: Record<string, unknown> }) {
+  const field = (key: string) =>
+    typeof args[key] === "string" ? (args[key] as string) : "";
+  // Gemini sometimes sends literal "\n"; the server turns those into line breaks too
+  const body = field("body").replace(/\\n/g, "\n").trim();
+  return (
+    <div className="email-preview">
+      <div className="email-label">Draft email · not sent</div>
+      <div className="email-meta">
+        <span className="email-key">To</span>
+        <span className="email-value">{field("to")}</span>
+      </div>
+      <div className="email-meta">
+        <span className="email-key">Subject</span>
+        <span className="email-value">
+          {field("subject") || "(no subject)"}
+        </span>
+      </div>
+      {field("reply_to_message_id") && (
+        <div className="email-meta">
+          <span className="email-key">Thread</span>
+          <span className="email-value">
+            Reply in the existing conversation
+          </span>
+        </div>
+      )}
+      <div className="email-body">{body}</div>
+    </div>
+  );
 }
 
 // --- Voice -----------------------------------------------------------------
@@ -81,6 +125,14 @@ function matchYesNo(transcript: string): "yes" | "no" | null {
 
 // "add_note {text: 'Buy milk'}" -> "Add note: Buy milk."
 function describeCall({ name, args }: ToolCall): string {
+  // A draft is described by who it's for, not read out in full
+  if (name === "create_draft") {
+    const subject =
+      typeof args.subject === "string" && args.subject
+        ? ` about "${args.subject}"`
+        : "";
+    return `Create a draft email to ${String(args.to ?? "someone")}${subject}. It won't be sent.`;
+  }
   const action = name.replace(/_/g, " ");
   const details = Object.values(args).filter(
     (v): v is string => typeof v === "string" && v !== "",
@@ -129,10 +181,17 @@ function voiceLabel(v: SpeechSynthesisVoice): string {
   return `${name} · ${v.lang}`;
 }
 
+// The prompt asks for plain text, but Gemini sometimes still adds ** or #
+function stripMarkdown(text: string): string {
+  return text.replace(/\*\*|__|`/g, "").replace(/^\s*#+\s*/gm, "");
+}
+
 function speak(text: string, voiceURI = "") {
   if (!("speechSynthesis" in window) || !text.trim()) return;
   window.speechSynthesis.cancel(); // never queue up behind an old reply
-  const utterance = new SpeechSynthesisUtterance(text);
+  // Lists read better without their dashes
+  const spoken = stripMarkdown(text).replace(/^\s*[-*•]\s+/gm, "");
+  const utterance = new SpeechSynthesisUtterance(spoken);
   const lang = guessLang(text);
   const voice = pickVoice(lang, voiceURI);
   utterance.lang = voice?.lang ?? lang;
@@ -755,11 +814,15 @@ export default function App() {
               </div>
             ) : (
               <div key={i} className="msg-assistant">
-                {m.content}
+                {stripMarkdown(m.content)}
                 {m.toolCalls && m.toolCalls.length > 0 && (
                   <div className="tools">
                     {m.toolCalls.map((tc, j) => (
-                      <span key={j} className="tool">
+                      <span
+                        key={j}
+                        className="tool"
+                        title={formatToolCall(tc, 2000)}
+                      >
                         {formatToolCall(tc)}
                       </span>
                     ))}
@@ -773,13 +836,17 @@ export default function App() {
           {approval && (
             <div className="msg-assistant">
               Okay to do this?
-              <div className="tools">
-                {approval.map((tc, j) => (
-                  <span key={j} className="tool">
-                    {formatToolCall(tc)}
-                  </span>
-                ))}
-              </div>
+              {approval.map((tc, j) =>
+                tc.name === "create_draft" ? (
+                  <EmailPreview key={j} args={tc.args} />
+                ) : (
+                  <div key={j} className="tools">
+                    <span className="tool" title={formatToolCall(tc, 2000)}>
+                      {formatToolCall(tc)}
+                    </span>
+                  </div>
+                ),
+              )}
               {approvalSteps.length > 0 && (
                 <Steps steps={approvalSteps} defaultOpen />
               )}

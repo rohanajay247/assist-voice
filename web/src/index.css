@@ -148,6 +148,52 @@ input {
   padding: 1px 6px;
 }
 
+/* Draft email preview on the approval card */
+
+.email-preview {
+  margin-top: 8px;
+  max-width: 520px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+  font-size: 14px;
+}
+
+.email-label {
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.email-meta {
+  display: flex;
+  gap: 10px;
+  line-height: 1.5;
+}
+
+.email-key {
+  flex: none;
+  width: 56px;
+  color: var(--muted);
+}
+
+.email-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.email-body {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
 /* Step panel */
 
 .steps {
