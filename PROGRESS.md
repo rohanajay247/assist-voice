@@ -139,5 +139,5 @@ Learning journal (Journal + Code walkthrough tabs): https://claude.ai/artifact/5
 - Routing by a small LLM call (not keywords or embeddings); when unsure, give more tools, never fewer
 - Untis dropped rather than a manual timetable import
 
-**First task next session**
-- Day 7 first (never cut): eval suite on the current v1, then README with results and demo video. Then PWA + Cloudflare Tunnel if time allows
+**First task Day 4**
+- Brief on PWAs and tunnels, then make the web app installable (manifest + service worker) and reach it from the phone through Cloudflare Tunnel; then camera (letters, receipts), screenshot errors, cross-app chains
