@@ -186,13 +186,15 @@ def _when(moment: date | datetime) -> dict:
     return {"date": moment.isoformat()}
 
 
-def _events(days_ahead: int, query: str | None = None) -> dict:
-    """Events from midnight today up to `days_ahead` days later, soonest first."""
-    today = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+def _events(days_ahead: int, query: str | None = None, start: date | None = None) -> dict:
+    """Events from midnight of `start` (default: today) up to `days_ahead` days later, soonest first."""
+    if start is None:
+        start = datetime.now(TZ).date()
+    first = datetime(start.year, start.month, start.day, tzinfo=TZ)
     params = {
         "calendarId": CALENDAR,
-        "timeMin": today.isoformat(),
-        "timeMax": (today + timedelta(days=days_ahead)).isoformat(),
+        "timeMin": first.isoformat(),
+        "timeMax": (first + timedelta(days=days_ahead)).isoformat(),
         "singleEvents": True,  # expand recurring events into single dates
         "orderBy": "startTime",
         "maxResults": MAX_RESULTS,
@@ -206,11 +208,15 @@ def _events(days_ahead: int, query: str | None = None) -> dict:
 
 @mcp.tool()
 @google_tool
-def list_events(days_ahead: int = 1) -> dict:
-    """List events on the user's Google Calendar, starting today.
-    Use for 'what's on my calendar', 'am I free tomorrow', 'my schedule this week'.
-    `days_ahead` is 1-90: 1 = today, 2 = today and tomorrow, 7 = this week."""
-    return _events(max(1, min(days_ahead, 90)))
+def list_events(days_ahead: int = 1, date_from: str | None = None) -> dict:
+    """List events on the user's Google Calendar.
+    Use for 'what's on my calendar', 'am I free tomorrow', 'my schedule this week',
+    and for past days like 'what did I have yesterday'.
+    `date_from` is a Berlin date 'YYYY-MM-DD' to start from (default: today);
+    use it for past days, e.g. date_from='2026-10-30', days_ahead=1 for that one day.
+    `days_ahead` is 1-90: how many days to cover from date_from (1 = just that day)."""
+    start = date.fromisoformat(date_from) if date_from else None
+    return _events(max(1, min(days_ahead, 90)), start=start)
 
 
 @mcp.tool()
