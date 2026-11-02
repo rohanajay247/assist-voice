@@ -47,6 +47,12 @@ PROMPTS = {
         "changed), saved to-dos still pending, and tomorrow's first event. End by offering "
         "to save a note for tomorrow and to mark finished to-dos done; don't change anything yourself."
     ),
+    "weekly_receipt": (
+        "Weekly receipt: what Assist did for the user in the last 7 days. Lead with the "
+        "totals exactly as counted in 'counts' (never recount), mention what was undone, "
+        "then name the 2-3 most useful actions from 'examples', and end with the week's "
+        "commits in one line. Warm but factual, like a short receipt."
+    ),
     "where_was_i": (
         "The user is coming back to work and asks 'where was I?'. Say what they were "
         "working on (repo, branch, the latest commits and any uncommitted changes), what "
@@ -54,6 +60,44 @@ PROMPTS = {
         "most likely next step. Be concrete: name files, branches and titles."
     ),
 }
+
+
+# What each logged action means on a receipt
+ACTION_LABELS = {
+    "add_note": "notes saved", "delete_note": "notes deleted",
+    "create_event": "calendar events added", "delete_event": "calendar events removed",
+    "create_draft": "email drafts written", "delete_draft": "email drafts removed",
+    "save_tabs": "tab clean-ups", "open_saved_tabs": "saved tabs reopened",
+    "mark_tabs_done": "saved to-dos finished", "forget_saved_tabs": "saved-tab flushes",
+    "install_tool": "tools built", "remove_tool": "tools removed",
+}
+
+
+def _receipt_counts(actions: list[dict]) -> dict:
+    """Count in code, so the model never does arithmetic."""
+    counts: dict[str, int] = {}
+    undone = 0
+    for a in actions:
+        if a["undone"]:
+            undone += 1
+            continue
+        label = ACTION_LABELS.get(a["tool"], a["tool"])
+        counts[label] = counts.get(label, 0) + 1
+    return {"total_actions": sum(counts.values()), "by_kind": counts, "undone": undone}
+
+
+def _receipt_examples(actions: list[dict]) -> list[dict]:
+    """Short, readable versions of the actions that stuck (newest first)."""
+    keep = ("text", "title", "subject", "to", "start", "name", "read_later", "todo")
+    out = []
+    for a in reversed(actions):
+        if a["undone"]:
+            continue
+        args = {k: (str(v)[:80] if not isinstance(v, list) else len(v))
+                for k, v in a["args"].items() if k in keep}
+        out.append({"what": ACTION_LABELS.get(a["tool"], a["tool"]), "details": args,
+                    "at_utc": a["at_utc"]})
+    return out[:15]
 
 
 def _text(content) -> str:
@@ -204,7 +248,34 @@ def make_routine_tools(tools_by_name: dict) -> list:
             sources["latest saved tabs"] = sources["latest saved tabs"][:6]
         return await _summarise("where_was_i", sources, skipped)
 
-    return [start_my_day, wrap_up, where_was_i]
+    @tool
+    async def weekly_receipt() -> str:
+        """Weekly receipt: everything Assist did for the user in the last 7 days (notes,
+        events, drafts, tab clean-ups, tools built, what was undone) plus the week's commits.
+        Use for 'what did you do for me this week?', 'weekly receipt', 'my week with Assist'.
+        Read it out as it is."""
+        today = datetime.now(BERLIN).date()
+        start = today - timedelta(days=6)
+
+        async def receipt():
+            actions = await asyncio.to_thread(actions_since, _berlin_midnight_utc(start), 500)
+            return {"counts": _receipt_counts(actions), "examples": _receipt_examples(actions)}
+
+        sources, skipped = await gather({
+            "Assist this week": receipt(),
+            "commits this week": call("get_git_activity", {
+                "date_from": start.isoformat(), "date_to": today.isoformat()}),
+        })
+        commits = sources.get("commits this week")
+        if isinstance(commits, dict) and "commits" in commits:  # counts only, not 100 messages
+            sources["commits this week"] = {
+                "total": len(commits["commits"]),
+                "per_repo": commits.get("per_repo") or commits.get("counts"),
+                "latest": [c.get("message") for c in commits["commits"][-5:]],
+            }
+        return await _summarise("weekly_receipt", sources, skipped)
+
+    return [start_my_day, wrap_up, where_was_i, weekly_receipt]
 
 
-SAFE = {"start_my_day", "wrap_up", "where_was_i"}  # read only: no approval
+SAFE = {"start_my_day", "wrap_up", "where_was_i", "weekly_receipt"}  # read only: no approval
