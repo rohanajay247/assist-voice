@@ -2,6 +2,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
@@ -23,6 +25,7 @@ interface Step {
 interface Message {
   role: Role;
   content: string;
+  image?: string; // data URL of a photo the user sent
   toolCalls?: ToolCall[];
   steps?: Step[];
 }
@@ -200,10 +203,23 @@ function describeCall({ name, args }: ToolCall): string {
 }
 
 // Rough guess so German replies get a German voice when one is installed
+// Common words of each language. Counting them (instead of looking for ä/ö/ü)
+// keeps an English reply English when it quotes a German name or letter.
+const DE_WORDS = new Set(
+  "und ist nicht das ich der den dem des ein eine einen sie wir mit für auf von zu bitte heute morgen wetter ja nein es du bei oder aber wird sind haben".split(" "),
+);
+const EN_WORDS = new Set(
+  "the and is are to you your of it this that by for with what on in be will a an i can it's there".split(" "),
+);
+
 function guessLang(text: string): string {
-  return /[äöüß]|\b(und|ist|nicht|das|ich|der|die|morgen|wetter)\b/i.test(text)
-    ? "de-DE"
-    : "en-US";
+  let de = 0;
+  let en = 0;
+  for (const word of text.toLowerCase().match(/[\p{L}']+/gu) ?? []) {
+    if (DE_WORDS.has(word)) de++;
+    if (EN_WORDS.has(word)) en++;
+  }
+  return de > en ? "de-DE" : "en-US"; // a tie stays English
 }
 
 // Prefer the neural voices browsers ship: Edge "… Online (Natural)", Chrome "Google …"
@@ -630,6 +646,28 @@ function VoiceMenu({
   );
 }
 
+// --- Photos -----------------------------------------------------------------
+
+const MAX_IMAGE_SIDE = 1600; // px; enough to read a letter, small to upload
+const IMAGE_QUALITY = 0.8;
+
+// Shrink a photo or screenshot and re-encode it as JPEG, returned as a data URL.
+// Phone photos are 3-10 MB; this brings them to a few hundred KB.
+async function resizeImage(file: Blob): Promise<string> {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas");
+  ctx.fillStyle = "#ffffff"; // transparent PNGs get a white background, not black
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
+}
+
 // The server keeps the history (LangGraph checkpointer).
 // /chat sends a new message, /approve answers a pending approval.
 async function post(path: string, body: unknown): Promise<ChatResponse> {
@@ -644,6 +682,8 @@ async function post(path: string, body: unknown): Promise<ChatResponse> {
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]); // display only
   const [input, setInput] = useState("");
+  const [image, setImage] = useState<string | null>(null); // photo waiting to be sent
+  const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false); // request in flight
   const [approval, setApproval] = useState<ToolCall[] | null>(null); // waiting for OK
   const [approvalSteps, setApprovalSteps] = useState<Step[]>([]); // steps so far
@@ -749,11 +789,49 @@ export default function App() {
 
   function send(text: string) {
     const content = text.trim();
+    const photo = image;
     // While an approval is open, the graph is paused: answer it first
-    if (!content || pending || approval) return;
-    setMessages((prev) => [...prev, { role: "user", content }]);
+    if ((!content && !photo) || pending || approval) return;
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content, ...(photo ? { image: photo } : {}) },
+    ]);
     setInput("");
-    run(() => post("/chat", { thread_id: threadId.current, message: content }));
+    setImage(null);
+    // An empty message with a photo: the server asks a default question
+    run(() =>
+      post("/chat", {
+        thread_id: threadId.current,
+        message: content,
+        ...(photo ? { image: photo } : {}),
+      }),
+    );
+  }
+
+  async function attach(file: Blob | null | undefined) {
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      setImage(await resizeImage(file));
+      setError(null);
+    } catch {
+      setError("Couldn’t read that image. Try another one.");
+    }
+    inputRef.current?.focus();
+  }
+
+  function onPickPhoto(e: ChangeEvent<HTMLInputElement>) {
+    attach(e.target.files?.[0]);
+    e.target.value = ""; // picking the same file again still fires onChange
+  }
+
+  // Ctrl+V of a screenshot into the text box attaches it
+  function onPaste(e: ClipboardEvent<HTMLInputElement>) {
+    const item = Array.from(e.clipboardData.items).find((i) =>
+      i.type.startsWith("image/"),
+    );
+    if (!item) return; // plain text: normal paste
+    e.preventDefault();
+    attach(item.getAsFile());
   }
 
   function decide(approved: boolean) {
@@ -971,6 +1049,9 @@ export default function App() {
           {messages.map((m, i) =>
             m.role === "user" ? (
               <div key={i} className="msg-user">
+                {m.image && (
+                  <img className="msg-photo" src={m.image} alt="Photo you sent" />
+                )}
                 {m.content}
               </div>
             ) : (
@@ -1045,16 +1126,62 @@ export default function App() {
       </main>
 
       <form className="column composer" onSubmit={onSubmit}>
+        {image && (
+          <div className="attachment">
+            <img src={image} alt="Photo to send" />
+            <button
+              type="button"
+              className="attachment-remove"
+              onClick={() => setImage(null)}
+              aria-label="Remove photo"
+              title="Remove photo"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+          onChange={onPickPhoto}
+        />
         <div className="field">
           <input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={onPaste}
             placeholder={placeholder}
             aria-label="Message"
             disabled={!!approval}
             autoFocus
           />
+          <button
+            type="button"
+            className="icon-btn camera"
+            disabled={pending || !!approval}
+            onClick={() => fileRef.current?.click()}
+            aria-label="Add a photo"
+            title="Add a photo (or paste a screenshot)"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </svg>
+          </button>
           <button
             type="button"
             className={`icon-btn mic${voice === "recording" ? " is-recording" : ""}${
@@ -1109,7 +1236,7 @@ export default function App() {
           <button
             type="submit"
             className="icon-btn send"
-            disabled={!input.trim() || pending || !!approval}
+            disabled={(!input.trim() && !image) || pending || !!approval}
             aria-label="Send"
           >
             <svg

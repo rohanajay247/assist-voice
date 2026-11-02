@@ -8,7 +8,10 @@ Day 2:
   calls /approve, which resumes the same thread with Command(resume=...).
 - Voice. /transcribe turns a push-to-talk recording into text with Groq Whisper.
 """
+import base64
+import binascii
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -32,6 +35,9 @@ langfuse_handler = CallbackHandler()
 GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 STT_MODEL = "whisper-large-v3-turbo"
 MAX_AUDIO_BYTES = 25 * 1024 * 1024  # Groq's upload limit on the free tier
+MAX_IMAGE_BYTES = 4 * 1024 * 1024    # the browser resizes to ~1600px JPEG, far below this
+IMAGE_DATA_URL = re.compile(r"^data:image/(jpeg|png);base64,(.+)$", re.S)
+DEFAULT_IMAGE_QUESTION = "What is this, and what do I need to do?"
 
 # The tunnel URL is public, so every request must carry this token.
 # Unset (local dev): no check.
@@ -68,6 +74,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     thread_id: str  # which saved conversation to continue
     message: str    # only the latest user text, no history
+    image: str | None = None  # optional photo as a data URL (JPEG or PNG)
 
 
 class ApproveRequest(BaseModel):
@@ -192,12 +199,33 @@ async def auth_check() -> dict:
     return {"ok": True}
 
 
+def check_image(image: str) -> None:
+    """Accept only a JPEG/PNG data URL with valid base64, up to MAX_IMAGE_BYTES."""
+    match = IMAGE_DATA_URL.match(image)
+    if not match:
+        raise HTTPException(400, "Image must be a JPEG or PNG data URL")
+    try:
+        data = base64.b64decode(match.group(2), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "Image data is not valid base64")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "Image is larger than 4 MB")
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
     # Send only the new message; add_messages appends it to the saved history.
-    result = await graph.ainvoke(
-        {"messages": [HumanMessage(req.message)]}, make_config(req.thread_id)
-    )
+    if req.image:
+        check_image(req.image)
+        text = req.message.strip() or DEFAULT_IMAGE_QUESTION
+        # Text + image in one message; the graph sends it to the vision model
+        message = HumanMessage([
+            {"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": req.image}},
+        ])
+    else:
+        message = HumanMessage(req.message)
+    result = await graph.ainvoke({"messages": [message]}, make_config(req.thread_id))
     return to_response(result)
 
 

@@ -493,8 +493,50 @@ input {
 
 .composer {
   display: flex;
+  flex-wrap: wrap; /* the photo preview sits on its own row above the field */
   padding-top: 8px;
   padding-bottom: 20px;
+}
+
+/* Photo waiting to be sent */
+.attachment {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.attachment img {
+  display: block;
+  height: 72px;
+  max-width: 60%;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.attachment-remove {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Photo inside a sent message */
+.msg-photo {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: 4px;
+  margin-bottom: 6px;
 }
 
 .field {
@@ -549,6 +591,20 @@ input {
 .send:disabled {
   background: var(--border);
   color: var(--muted);
+  cursor: default;
+}
+
+.camera {
+  background: none;
+  color: var(--muted);
+}
+
+.camera:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.camera:disabled {
+  opacity: 0.45;
   cursor: default;
 }
 
