@@ -19,14 +19,18 @@ from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import (
+    Depends, FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketException,
+)
+from starlette.requests import HTTPConnection
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from backend.assist.graph.agent import DENIED, WRITE_TOOLS, build_graph, needs_approval
+from backend.assist import browser
+from backend.assist.graph.agent import DENIED, UNDOABLE, build_graph, needs_approval
 from backend.assist.toolbuilder import registry
 
 load_dotenv()
@@ -46,12 +50,18 @@ DEFAULT_IMAGE_QUESTION = "What is this, and what do I need to do?"
 ACCESS_TOKEN = os.getenv("ASSIST_ACCESS_TOKEN", "")
 
 
-def require_token(x_assist_token: str = Header(default="")) -> None:
-    """Reject requests without the right X-Assist-Token header."""
+def require_token(conn: HTTPConnection) -> None:
+    """Reject requests without the right X-Assist-Token header.
+
+    The browser extension's WebSocket can't set headers, so ?token= works too.
+    """
     if not ACCESS_TOKEN:
         return
+    given = conn.headers.get("x-assist-token") or conn.query_params.get("token", "")
     # Constant-time compare, so response timing doesn't leak the token
-    if not secrets.compare_digest(x_assist_token.encode(), ACCESS_TOKEN.encode()):
+    if not secrets.compare_digest(given.encode(), ACCESS_TOKEN.encode()):
+        if conn.scope["type"] == "websocket":
+            raise WebSocketException(code=1008, reason="Missing or wrong access token")
         raise HTTPException(401, "Missing or wrong access token")
 
 
@@ -167,7 +177,7 @@ def build_steps(turn: list, interrupted: bool) -> list[Step]:
             failed = returned_error(m)
             steps.append(Step(kind="tool", label=f"Ran {name}", status="error" if failed else "ok"))
             # The graph's record node logs successful writes so they can be undone
-            if name in WRITE_TOOLS and not failed:
+            if name in UNDOABLE and not failed:
                 steps.append(Step(kind="undo_log", label="Saved for undo", status="ok"))
 
     return steps
@@ -264,6 +274,17 @@ async def approve(req: ApproveRequest) -> ChatResponse:
     result = await graph.ainvoke(Command(resume=decision), make_config(req.thread_id))
     await rebuild_if_tools_changed()
     return to_response(result)
+
+@app.websocket("/ext/ws")
+async def extension_socket(ws: WebSocket) -> None:
+    # The Save-my-tabs extension stays connected here; tab tools send it commands
+    await browser.serve(ws)
+
+
+@app.get("/ext/status")
+async def extension_status() -> dict:
+    return {"connected": browser.connected()}
+
 
 @app.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:

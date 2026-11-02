@@ -18,7 +18,7 @@ interface ToolCall {
 
 // What install_tool / build_tool show on the approval card (see preview_of in agent.py)
 interface ToolPreviewData {
-  kind: "tool" | "build";
+  kind: "tool" | "build" | "tabs";
   name: string;
   description: string;
   network: boolean;
@@ -27,6 +27,39 @@ interface ToolPreviewData {
   total?: number;
   tests?: { call: string; output: string; ok: boolean }[];
   code?: string;
+  // kind "tabs" (save_tabs): titles per list
+  read_later?: string[];
+  todo?: string[];
+  close?: string[];
+  keep_open?: string[];
+  search?: string[];
+}
+
+// save_tabs: what gets saved and what only gets closed
+function TabsPreview({ preview }: { preview: ToolPreviewData }) {
+  const section = (label: string, titles: string[] = []) =>
+    titles.length > 0 && (
+      <div className="tabs-section">
+        <div className="email-key">
+          {label} ({titles.length})
+        </div>
+        <ul className="tabs-list">
+          {titles.map((t, i) => (
+            <li key={i}>{t}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  return (
+    <div className="email-preview">
+      <div className="email-label">Save my tabs · saved tabs close too · undo reopens all</div>
+      {section("Read later", preview.read_later)}
+      {section("To-do", preview.todo)}
+      {section("Searches (closed, remembered)", preview.search)}
+      {section("Close", preview.close)}
+      {section("Keep open", preview.keep_open)}
+    </div>
+  );
 }
 
 // One line in the step panel, built by the server from this turn's messages
@@ -176,6 +209,7 @@ function EmailPreview({ args }: { args: Record<string, unknown> }) {
 
 // A tool Assist built: what it does, its test results and the code, before it's added
 function ToolPreview({ preview }: { preview: ToolPreviewData }) {
+  if (preview.kind === "tabs") return <TabsPreview preview={preview} />;
   if (preview.kind === "build") {
     return (
       <div className="email-preview">
@@ -251,7 +285,7 @@ function matchYesNo(transcript: string): "yes" | "no" | null {
 }
 
 // "add_note {text: 'Buy milk'}" -> "Add note: Buy milk."
-function describeCall({ name, args }: ToolCall): string {
+function describeCall({ name, args, preview }: ToolCall): string {
   // A draft is described by who it's for, not read out in full
   if (name === "create_draft") {
     const subject =
@@ -262,6 +296,12 @@ function describeCall({ name, args }: ToolCall): string {
   }
   if (name === "install_tool" && args && "proposal_id" in args) {
     return "Add a new tool I built. Its tests and code are on screen.";
+  }
+  if (name === "save_tabs" && preview?.kind === "tabs") {
+    const n = (key: "read_later" | "todo" | "close" | "search") => preview[key]?.length ?? 0;
+    return `Save ${n("read_later")} to read later and ${n("todo")} to-dos, then close ${
+      n("read_later") + n("todo") + n("close") + n("search")
+    } tabs.`;
   }
   if (name === "build_tool") {
     return `Build a tool called ${String(args.name ?? "")} that can use the internet.`;

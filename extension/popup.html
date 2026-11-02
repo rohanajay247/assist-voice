@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { font: 13px system-ui, sans-serif; width: 260px; margin: 12px; color: #1d1d1f; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  label { display: block; margin-top: 8px; color: #666; }
+  input { width: 100%; box-sizing: border-box; padding: 5px 6px; margin-top: 2px; }
+  button { margin-top: 10px; padding: 5px 10px; }
+  #status { font-weight: 600; }
+  .ok { color: #3a7a55; } .off { color: #a8453c; }
+</style>
+<h1>Assist · Save my tabs</h1>
+<div>Status: <span id="status">…</span></div>
+<label>API address <input id="apiUrl" placeholder="http://localhost:8000"></label>
+<label>Access token <input id="token" type="password" placeholder="ASSIST_ACCESS_TOKEN (if set)"></label>
+<button id="save">Save</button>
+<script src="popup.js"></script>

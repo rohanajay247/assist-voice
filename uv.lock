@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -220,6 +220,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "tzdata" },
     { name = "uvicorn" },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -238,6 +239,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "tzdata", specifier = ">=2026.5" },
     { name = "uvicorn", specifier = ">=0.54.0" },
+    { name = "websockets", specifier = ">=17.3" },
 ]
 
 [[package]]

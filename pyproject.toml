@@ -17,4 +17,5 @@ dependencies = [
     "python-multipart>=0.0.32",
     "tzdata>=2026.5",
     "uvicorn>=0.54.0",
+    "websockets>=17.3",
 ]

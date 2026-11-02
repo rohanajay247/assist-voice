@@ -317,6 +317,19 @@ input {
   white-space: pre;
 }
 
+.tabs-section {
+  margin-top: 8px;
+}
+
+.tabs-list {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 /* Step panel */
 
 .steps {
