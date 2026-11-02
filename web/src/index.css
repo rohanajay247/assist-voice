@@ -148,6 +148,88 @@ input {
   padding: 1px 6px;
 }
 
+/* Lock view (access token) */
+
+.lock {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.lock-card {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.lock-card h1 {
+  margin: 14px 0 6px;
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.lock-hint {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+
+.lock-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: none;
+  outline: none;
+}
+
+.lock-input:focus {
+  border-color: var(--accent);
+}
+
+.lock-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.lock-input::placeholder {
+  color: var(--muted);
+}
+
+.lock-button {
+  width: 100%;
+  height: 44px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 22px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.lock-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.lock-error {
+  min-height: 1.55em; /* reserve the line so the layout doesn't jump */
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.lock-error.is-error {
+  color: var(--danger);
+}
+
 /* Draft email preview on the approval card */
 
 .email-preview {

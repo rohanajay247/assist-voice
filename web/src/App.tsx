@@ -34,7 +34,65 @@ interface ChatResponse {
   steps?: Step[];
 }
 
-const API_URL = import.meta.env.VITE_API_URL as string;
+// --- API -------------------------------------------------------------------
+
+// Paths are relative: Vite proxies /chat, /approve and /transcribe to the
+// backend, so the app works the same on localhost and through the tunnel.
+const TOKEN_KEY = "assist.token";
+
+function loadToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveToken(token: string) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // storage blocked: the token works for this request only
+  }
+}
+
+class UnauthorizedError extends Error {}
+
+const TOKEN_EXPIRED = "Your access token stopped working. Enter it again.";
+
+function tokenHeaders(token: string, init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  if (token) headers.set("X-Assist-Token", token);
+  return headers;
+}
+
+// Asks the backend whether this token is accepted. "offline" means the
+// server couldn't be reached (or isn't Assist), which is not a lock reason.
+async function checkToken(token: string): Promise<"ok" | "denied" | "offline"> {
+  try {
+    const res = await fetch("/auth/check", { headers: tokenHeaders(token) });
+    if (res.status === 401) return "denied";
+    return res.ok ? "ok" : "offline";
+  } catch {
+    return "offline";
+  }
+}
+
+// Sends the saved access token. A 401 means it stopped working: forget it
+// and let the caller show the lock view.
+async function apiFetch(path: string, init: RequestInit): Promise<Response> {
+  const res = await fetch(path, {
+    ...init,
+    headers: tokenHeaders(loadToken(), init.headers),
+  });
+  if (res.status === 401) {
+    saveToken("");
+    throw new UnauthorizedError();
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res;
+}
 
 const EXAMPLES = [
   "What’s the weather tomorrow?",
@@ -240,11 +298,7 @@ function extensionFor(mimeType: string): string {
 async function transcribe(audio: Blob): Promise<string> {
   const form = new FormData();
   form.append("audio", audio, `speech.${extensionFor(audio.type)}`);
-  const res = await fetch(`${API_URL}/transcribe`, {
-    method: "POST",
-    body: form,
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await apiFetch("/transcribe", { method: "POST", body: form });
   const data: { text: string } = await res.json();
   return data.text;
 }
@@ -258,12 +312,12 @@ function micError(e: unknown): string {
 }
 
 // Same mark as public/favicon.svg, drawn on a 16px grid so the bars stay crisp
-function LogoMark() {
+function LogoMark({ size = 20 }: { size?: number }) {
   return (
     <svg
       className="logo-mark"
-      width="20"
-      height="20"
+      width={size}
+      height={size}
       viewBox="0 0 16 16"
       aria-hidden="true"
     >
@@ -274,6 +328,71 @@ function LogoMark() {
         <rect x="11" y="6" width="2" height="4" rx="1" />
       </g>
     </svg>
+  );
+}
+
+// Shown instead of the chat until the access token is accepted
+function LockView({
+  message,
+  onUnlock,
+}: {
+  message: string | null;
+  onUnlock: (token: string) => Promise<string | null>;
+}) {
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const value = token.trim();
+    if (!value || busy) return;
+    setBusy(true);
+    setError(null);
+    const problem = await onUnlock(value);
+    // On success the app swaps this view out; only update state on failure
+    if (problem) {
+      setBusy(false);
+      setError(problem);
+    }
+  }
+
+  const shown = error ?? message;
+  return (
+    <div className="lock">
+      <form className="lock-card" onSubmit={submit}>
+        <LogoMark size={40} />
+        <h1>Assist</h1>
+        <p className="lock-hint">Enter your access token to continue.</p>
+        <input
+          className="lock-input"
+          type="password"
+          name="token"
+          autoComplete="current-password"
+          placeholder="Access token"
+          aria-label="Access token"
+          aria-invalid={!!error}
+          aria-describedby="lock-error"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          autoFocus
+        />
+        <button
+          className="lock-button"
+          type="submit"
+          disabled={!token.trim() || busy}
+        >
+          {busy ? "Checking…" : "Unlock"}
+        </button>
+        <p
+          id="lock-error"
+          className={`lock-error${error ? " is-error" : ""}`}
+          role="alert"
+        >
+          {shown}
+        </p>
+      </form>
+    </div>
   );
 }
 
@@ -514,12 +633,11 @@ function VoiceMenu({
 // The server keeps the history (LangGraph checkpointer).
 // /chat sends a new message, /approve answers a pending approval.
 async function post(path: string, body: unknown): Promise<ChatResponse> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
@@ -533,6 +651,9 @@ export default function App() {
   const [voice, setVoice] = useState<
     "idle" | "starting" | "recording" | "transcribing"
   >("idle");
+  // "checking" until /auth/check answers; "locked" shows the lock view
+  const [auth, setAuth] = useState<"checking" | "locked" | "open">("checking");
+  const [lockMessage, setLockMessage] = useState<string | null>(null);
   const [muted, setMuted] = useState(() => loadPref(MUTE_KEY) === "1");
   const [voiceURI, setVoiceURI] = useState(() => loadPref(VOICE_KEY) ?? "");
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -548,6 +669,20 @@ export default function App() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages, pending, error, approval]);
+
+  // On open: is the saved token (or no token) accepted?
+  useEffect(() => {
+    const saved = loadToken();
+    checkToken(saved).then((result) => {
+      if (result === "denied") {
+        saveToken("");
+        setLockMessage(saved ? TOKEN_EXPIRED : null);
+        setAuth("locked");
+      } else {
+        setAuth("open"); // "offline" too: sending then shows the usual error
+      }
+    });
+  }, []);
 
   // Browsers load their voice list late, so listen for it to arrive
   useEffect(() => {
@@ -591,13 +726,21 @@ export default function App() {
     if (!quiet) speak(data.reply, voice);
   }
 
+  // A call came back 401: back to the lock view (the chat stays in memory)
+  function lock(message: string | null) {
+    stopSpeaking();
+    setLockMessage(message);
+    setAuth("locked");
+  }
+
   async function run(request: () => Promise<ChatResponse>) {
     setError(null);
     setPending(true);
     try {
       show(await request());
-    } catch {
-      setError("Couldn’t reach Assist. Try again.");
+    } catch (e) {
+      if (e instanceof UnauthorizedError) lock(TOKEN_EXPIRED);
+      else setError("Couldn’t reach Assist. Try again.");
     } finally {
       setPending(false);
       inputRef.current?.focus();
@@ -710,9 +853,10 @@ export default function App() {
     let text: string;
     try {
       text = (await transcribe(blob)).trim();
-    } catch {
+    } catch (e) {
       setVoice("idle");
-      setError("Couldn’t transcribe that. Try again.");
+      if (e instanceof UnauthorizedError) lock(TOKEN_EXPIRED);
+      else setError("Couldn’t transcribe that. Try again.");
       return;
     }
     setVoice("idle");
@@ -731,6 +875,23 @@ export default function App() {
     }
     send(text);
   }
+
+  // Returns an error message for the lock view, or null once unlocked
+  async function unlock(token: string): Promise<string | null> {
+    const result = await checkToken(token);
+    if (result === "denied")
+      return "That token didn’t work. Check it and try again.";
+    if (result === "offline")
+      return "Couldn’t reach Assist. Is the server running?";
+    saveToken(token);
+    setLockMessage(null);
+    setAuth("open");
+    return null;
+  }
+
+  if (auth === "checking") return <div className="app" />;
+  if (auth === "locked")
+    return <LockView message={lockMessage} onUnlock={unlock} />;
 
   const empty = messages.length === 0 && !pending && !error;
   const holdKey = (key: string) => key === " " || key === "Enter";

@@ -9,12 +9,13 @@ Day 2:
 - Voice. /transcribe turns a push-to-talk recording into text with Groq Whisper.
 """
 import os
+import secrets
 from contextlib import asynccontextmanager
 from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langfuse.langchain import CallbackHandler
@@ -32,6 +33,19 @@ GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 STT_MODEL = "whisper-large-v3-turbo"
 MAX_AUDIO_BYTES = 25 * 1024 * 1024  # Groq's upload limit on the free tier
 
+# The tunnel URL is public, so every request must carry this token.
+# Unset (local dev): no check.
+ACCESS_TOKEN = os.getenv("ASSIST_ACCESS_TOKEN", "")
+
+
+def require_token(x_assist_token: str = Header(default="")) -> None:
+    """Reject requests without the right X-Assist-Token header."""
+    if not ACCESS_TOKEN:
+        return
+    # Constant-time compare, so response timing doesn't leak the token
+    if not secrets.compare_digest(x_assist_token.encode(), ACCESS_TOKEN.encode()):
+        raise HTTPException(401, "Missing or wrong access token")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,7 +56,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, dependencies=[Depends(require_token)])
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -169,6 +183,13 @@ def to_response(result: dict) -> ChatResponse:
         return ChatResponse(reply="", tool_calls=tool_calls, pending=pending, steps=steps)
 
     return ChatResponse(reply=messages[-1].content, tool_calls=tool_calls, steps=steps)
+
+
+@app.get("/auth/check")
+async def auth_check() -> dict:
+    # The app-wide require_token dependency does the work: reaching this
+    # line means the token is valid (or none is configured).
+    return {"ok": True}
 
 
 @app.post("/chat", response_model=ChatResponse)
