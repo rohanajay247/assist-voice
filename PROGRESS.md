@@ -215,5 +215,10 @@ Learning journal (Journal + Code walkthrough tabs): https://claude.ai/artifact/5
 - Same as Day 4, plus Docker Desktop running and once: `powershell -ExecutionPolicy Bypass -File scripts/build_sandbox.ps1`
 - Extension: `chrome://extensions` → Developer mode → Load unpacked → `extension/`; paste `ASSIST_ACCESS_TOKEN` in the popup
 
+**Scope change for Day 6 (decided Mon 2 Nov)**
+- Day 6 = routines ("Start my day", "Wrap up"), "Where was I?", weekly receipt, memory
+- Cut: Claude usage (Claude Vitals already shows it) and WG-Tafel
+- Handoff moves out into its own open-source project after Day 7: a general tool for any AI (ChatGPT, Gemini, claude.ai, coding agents) that captures the current chat and builds a self-contained work package (goal, real code, decisions, dead ends, next step, return format, self-test). Limit warning optional (Claude Vitals). Assist uses it later via MCP ("hand this off")
+
 **First task Day 6**
-- Brief on routines ("Start my day", "Wrap up") and "Where was I?", then build them; memory, weekly receipt, Claude usage + handoff, WG-Tafel after
+- Brief on routines ("Start my day", "Wrap up") and "Where was I?", then build them; weekly receipt and memory after
