@@ -10,6 +10,7 @@ import html
 import re
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
+from email.utils import parseaddr
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -419,6 +420,10 @@ def create_draft(to: str, subject: str, body: str, reply_to_message_id: str | No
     Write `body` as a real email with line breaks: the greeting on its own line,
     a blank line, short paragraphs separated by blank lines, then the sign-off
     on its own line. Plain text, no markdown."""
+    # "anna@x.de" and "Anna <anna@x.de>" are fine; a bare name is not
+    addresses = [parseaddr(a)[1] for a in to.split(",") if a.strip()]
+    if not addresses or not all(re.fullmatch(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+", a) for a in addresses):
+        return {"error": f"'to' must be email addresses like name@example.com, got {to!r}. Ask the user for the address."}
     gmail = _gmail()
     body = _email_layout(body)
     msg = EmailMessage()

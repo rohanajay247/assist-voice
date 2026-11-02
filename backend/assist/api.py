@@ -10,6 +10,7 @@ Day 2:
 """
 import base64
 import binascii
+import json
 import os
 import re
 import secrets
@@ -115,6 +116,20 @@ def make_config(thread_id: str) -> dict:
     }
 
 
+def returned_error(m: ToolMessage) -> bool:
+    """True if the tool failed: an exception, or a result like {"error": "..."}."""
+    if m.status == "error":
+        return True
+    content = m.content
+    if isinstance(content, list):  # MCP results can arrive as content blocks
+        content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    try:
+        data = json.loads(content)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(data, dict) and "error" in data
+
+
 def build_steps(turn: list, interrupted: bool) -> list[Step]:
     """Walk this turn's messages in order and describe each thing that happened.
 
@@ -147,7 +162,7 @@ def build_steps(turn: list, interrupted: bool) -> list[Step]:
 
         elif isinstance(m, ToolMessage) and m.content != DENIED:
             name = m.name or names.get(m.tool_call_id, "tool")
-            failed = m.status == "error"
+            failed = returned_error(m)
             steps.append(Step(kind="tool", label=f"Ran {name}", status="error" if failed else "ok"))
             # The graph's record node logs successful writes so they can be undone
             if name in WRITE_TOOLS and not failed:
