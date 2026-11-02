@@ -222,3 +222,35 @@ Learning journal (Journal + Code walkthrough tabs): https://claude.ai/artifact/5
 
 **First task Day 6**
 - Brief on routines ("Start my day", "Wrap up") and "Where was I?", then build them; weekly receipt and memory after
+
+## Day 6 — Mon 2 Nov (smart layer)
+
+**Done**
+- Routines (`backend/assist/routines.py`): `start_my_day`, `wrap_up`, `where_was_i`, `weekly_receipt` as local tools in a "routines" group. Code picks the sources and runs them in parallel (`asyncio.gather`), one Flash-Lite call writes a brief of max 6 lines. A failing source is skipped and named, never breaks the brief. Read-only, no approval
+- Start my day: today's events, unread mail (no promotions/social), weather, saved to-dos. Wrap up: today's commits, Assist's actions today, saved to-dos, tomorrow's first event, then offers a note and marking to-dos done (never acts itself). Where was I: commits last 3 days, branch + uncommitted changes per `STANDUP_REPOS` repo, latest notes, saved tabs, Assist's last actions
+- Weekly receipt: counts from the undo log in code (`_receipt_counts`), undone actions counted separately, highlights + week's commits; the model only words it. `actions_since()` added to `actions.py`
+- Saved tabs lifecycle: `mark_tabs_done` (no approval, undoable), `forget_saved_tabs` (ids / all done / everything; approval card lists titles; undo restores the rows), searches skip done tabs unless asked, briefs only show to-dos from the last 14 days plus a count of older ones and say "saved", never "open"
+- Router: browser group covers saved to-dos; when routines are picked, the tab tools come along (fixes "I'm done with the EggAI job" going to GitHub)
+- Memory (`backend/assist/memory.py`, `memory.db`): `remember` / `forget_memory` (approval + undo, never from email/tab/photo content), `list_memories`; all memories go into the system prompt and routine briefs on every call (max 50)
+- Gmail drafts: `to` can be empty (draft without recipient); placeholder addresses (`example.com`, `placeholder@`) refused; approval card says "no recipient yet"
+- Tested on the laptop: all four routines, note offer + undo, catch me up, done/forget/flush + undo, memory (signature used in a draft), draft without recipient
+
+**Broken / skipped**
+- "Where was I?" guesses the next step from commit messages only (mixed up Day 6 and Handoff once). Option: read a repo's `PROGRESS.md` "First task" line
+- Routines' weather uses the fixed home city (Albstadt); memory can't change routine sources yet, only the wording
+- Not retested after Day 6 changes: "save my tabs" end to end, calendar regression, extension switched off during a routine
+- Still open: `MemorySaver` RAM only (must fix before deploy), ~2.3s per stdio call, step panel not live, "tomorrow" after midnight, step arg order, geocoding "Albstadt-Ebingen", approval preview vs `_email_layout`, undo not parallel-safe in code
+
+**Decisions**
+- Cut from Day 6: Claude usage (Claude Vitals covers it) and WG-Tafel
+- Handoff is its own project after Day 7 (see scope note above)
+- Routines are code-driven recipes, not model plans: faster, cheaper, same every time
+- Counting and dates happen in code; the model only words results
+- Saved tabs: "done" hides but keeps, "forget" deletes (flush)
+- Memory needs approval because it changes every future answer
+
+**How to run**
+- Same as Day 5. Restart the API after changes to an MCP server (the Google server is its own process)
+
+**First task Day 7**
+- Brief on evals (what a good test case looks like, how to score agent answers), then write the 40-command test suite with 10 trick attempts; fixes, demo mode, README with results, demo video; Azure deploy only if time allows (swap `MemorySaver` for a persistent saver first)
