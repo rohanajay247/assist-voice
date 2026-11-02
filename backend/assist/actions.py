@@ -67,3 +67,18 @@ def last_action(thread_id: str) -> dict | None:
 def mark_undone(action_id: int) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE actions SET undone = 1 WHERE id = ?", (action_id,))
+
+def actions_since(since_utc: str, limit: int = 50) -> list[dict]:
+    """Every logged action since a UTC time ('YYYY-MM-DD HH:MM:SS'), oldest first,
+    across all conversations. For routines and the weekly receipt."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT tool, args, undone, created_at FROM actions "
+            "WHERE created_at >= ? ORDER BY id DESC LIMIT ?",
+            (since_utc, limit),
+        ).fetchall()
+    return [
+        {"tool": r["tool"], "args": json.loads(r["args"]), "undone": bool(r["undone"]),
+         "at_utc": r["created_at"]}
+        for r in reversed(rows)
+    ]

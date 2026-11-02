@@ -129,6 +129,9 @@ with _conn() as c:
         "saved_at TEXT NOT NULL, "  # Berlin time, ISO
         "opened_at TEXT)"
     )
+    # Day 6: a saved tab can be finished ("I applied to that job"), so lists don't go stale
+    if "done_at" not in {r["name"] for r in c.execute("PRAGMA table_info(saved_tabs)")}:
+        c.execute("ALTER TABLE saved_tabs ADD COLUMN done_at TEXT")
 
 
 def _now() -> str:
@@ -248,12 +251,22 @@ async def restore_tabs(batch: str) -> str:
 
 
 @tool
-async def search_saved_tabs(query: str = "", category: str = "", day: str = "") -> str:
-    """Find tabs the user saved earlier with 'save my tabs'.
+async def search_saved_tabs(
+    query: str = "", category: str = "", day: str = "", max_age_days: int = 0,
+    include_done: bool = False,
+) -> str:
+    """Find tabs the user saved earlier with 'save my tabs' (saved, not open in the browser).
     `query`: words in the title or link, e.g. 'langgraph' ('' = all).
     `category`: 'read_later', 'todo', 'search' (web searches the user had open) or '' for all.
-    `day`: 'YYYY-MM-DD' (Berlin) to only show tabs saved that day, or ''."""
+    `day`: 'YYYY-MM-DD' (Berlin) to only show tabs saved that day, or ''.
+    `max_age_days`: only tabs saved in the last N days (0 = any age).
+    `include_done`: also show tabs the user marked as done."""
     sql, params = "SELECT * FROM saved_tabs WHERE category != 'closed'", []
+    if not include_done:
+        sql += " AND done_at IS NULL"
+    if max_age_days > 0:
+        sql += " AND saved_at >= ?"
+        params.append((datetime.now(BERLIN) - timedelta(days=max_age_days)).isoformat(timespec="seconds"))
     for word in query.split():
         sql += " AND (title LIKE ? OR url LIKE ?)"
         params += [f"%{word}%", f"%{word}%"]
@@ -278,7 +291,8 @@ async def search_saved_tabs(query: str = "", category: str = "", day: str = "") 
     rows = unique[:20]
     return json.dumps([
         {"id": r["id"], "category": r["category"], "title": r["title"], "url": r["url"],
-         "saved_at": r["saved_at"], **({"opened_at": r["opened_at"]} if r["opened_at"] else {})}
+         "saved_at": r["saved_at"], **({"opened_at": r["opened_at"]} if r["opened_at"] else {}),
+         **({"done_at": r["done_at"]} if r["done_at"] else {})}
         for r in rows
     ])
 
@@ -304,6 +318,94 @@ async def open_saved_tabs(ids: list[int]) -> str:
     return json.dumps({"opened": [r["title"] for r in rows], "urls": [r["url"] for r in rows]})
 
 
+def _set_done(ids: list[int], value: str | None) -> list[dict]:
+    """Mark saved tabs done (value = now) or not done (None). Same link saved twice: all copies."""
+    if not ids:
+        return []
+    with _conn() as c:
+        rows = c.execute(
+            f"SELECT id, title, url FROM saved_tabs WHERE category != 'closed' "
+            f"AND id IN ({','.join('?' * len(ids))})", ids
+        ).fetchall()
+        urls = [r["url"] for r in rows]
+        if urls:
+            c.execute(
+                f"UPDATE saved_tabs SET done_at = ? WHERE category != 'closed' "
+                f"AND url IN ({','.join('?' * len(urls))})", [value, *urls]
+            )
+    return [dict(r) for r in rows]
+
+
+@tool
+async def mark_tabs_done(ids: list[int]) -> str:
+    """Mark saved tabs as done so they stop showing up in briefs and searches,
+    e.g. 'I applied to that job', 'done with the EggAI one', 'clear my tab to-dos'.
+    `ids` come from search_saved_tabs."""
+    rows = _set_done(ids, _now())
+    if not rows:
+        return json.dumps({"error": "no saved tabs with those ids"})
+    return json.dumps({"done": [r["title"] for r in rows], "ids": [r["id"] for r in rows]})
+
+
+@tool
+async def unmark_tabs_done(ids: list[int]) -> str:
+    """Undo a mark_tabs_done. Only used by undo_last_action."""
+    rows = _set_done(ids, None)
+    return json.dumps({"restored": len(rows)})
+
+
+COLUMNS = ("id", "batch", "category", "title", "url", "saved_at", "opened_at", "done_at")
+
+
+def _forget_rows(ids: list[int], all_done: bool, everything: bool = False) -> list[sqlite3.Row]:
+    if everything:  # full flush, including the closed-only rows kept for undo
+        return _conn().execute("SELECT * FROM saved_tabs").fetchall()
+    sql = "SELECT * FROM saved_tabs WHERE category != 'closed' AND "
+    if all_done:
+        return _conn().execute(sql + "done_at IS NOT NULL").fetchall()
+    if not ids:
+        return []
+    with _conn() as c:
+        urls = [r["url"] for r in c.execute(
+            sql + f"id IN ({','.join('?' * len(ids))})", ids).fetchall()]
+        if not urls:
+            return []
+        # the same link saved in several rounds goes with it, or it would pop up again
+        return c.execute(sql + f"url IN ({','.join('?' * len(urls))})", urls).fetchall()
+
+
+@tool
+async def forget_saved_tabs(
+    ids: list[int] | None = None, all_done: bool = False, everything: bool = False,
+) -> str:
+    """Delete saved tabs for good, e.g. 'forget the EggAI tab', 'clear my done tabs',
+    'forget all my saved tabs'. The user approves first; undo brings them back.
+    `ids` from search_saved_tabs, `all_done`=true for every tab marked done, or
+    `everything`=true to flush every saved tab and search."""
+    rows = _forget_rows(ids or [], all_done, everything)
+    if not rows:
+        return json.dumps({"error": "no saved tabs matched"})
+    with _conn() as c:
+        c.execute(f"DELETE FROM saved_tabs WHERE id IN ({','.join('?' * len(rows))})",
+                  [r["id"] for r in rows])
+    return json.dumps({
+        "forgotten": list(dict.fromkeys(r["title"] for r in rows)),
+        "rows": [{k: r[k] for k in COLUMNS} for r in rows],  # kept for undo
+    })
+
+
+@tool
+async def restore_forgotten_tabs(rows: list[dict]) -> str:
+    """Undo a forget_saved_tabs. Only used by undo_last_action."""
+    with _conn() as c:
+        c.executemany(
+            f"INSERT OR IGNORE INTO saved_tabs ({', '.join(COLUMNS)}) "
+            f"VALUES ({', '.join('?' * len(COLUMNS))})",
+            [[r.get(k) for k in COLUMNS] for r in rows],
+        )
+    return json.dumps({"restored": len(rows)})
+
+
 @tool
 async def close_reopened_tabs(urls: list[str]) -> str:
     """Undo an open_saved_tabs: close the tabs it opened (one per link, newest first).
@@ -322,6 +424,13 @@ async def close_reopened_tabs(urls: list[str]) -> str:
     return json.dumps({"closed": len(ids)})
 
 
+def forget_preview(args: dict) -> dict:
+    """Approval card for forget_saved_tabs: the titles that will be deleted."""
+    rows = _forget_rows(args.get("ids") or [], bool(args.get("all_done")), bool(args.get("everything")))
+    return {"kind": "tabs", "forget": list(dict.fromkeys(
+        r["title"] for r in rows if r["category"] != "closed"))}
+
+
 def preview(args: dict) -> dict:
     """Approval card for save_tabs: every listed tab and where it goes."""
     plan = _plan(args.get("read_later") or [], args.get("todo") or [], args.get("keep_open") or [])
@@ -330,9 +439,10 @@ def preview(args: dict) -> dict:
             "search": titles("search"), "close": titles("close"), "keep_open": titles("keep_open")}
 
 
-SAFE = {"list_open_tabs", "search_saved_tabs", "open_saved_tabs"}
-WRITES = {"save_tabs"}
+SAFE = {"list_open_tabs", "search_saved_tabs", "open_saved_tabs", "mark_tabs_done"}
+WRITES = {"save_tabs", "forget_saved_tabs"}
 # Run without approval but still go in the undo log ("undo that" after "open it")
-UNDOABLE_SAFE = {"open_saved_tabs"}
-UNDO_ONLY = [restore_tabs, close_reopened_tabs]  # called by undo, never shown to the model
-TOOLS = [list_open_tabs, save_tabs, search_saved_tabs, open_saved_tabs]
+UNDOABLE_SAFE = {"open_saved_tabs", "mark_tabs_done"}
+UNDO_ONLY = [restore_tabs, close_reopened_tabs, unmark_tabs_done, restore_forgotten_tabs]  # called by undo, never shown to the model
+TOOLS = [list_open_tabs, save_tabs, search_saved_tabs, open_saved_tabs, mark_tabs_done,
+         forget_saved_tabs]

@@ -33,6 +33,7 @@ interface ToolPreviewData {
   close?: string[];
   keep_open?: string[];
   search?: string[];
+  forget?: string[];
 }
 
 // save_tabs: what gets saved and what only gets closed
@@ -50,6 +51,14 @@ function TabsPreview({ preview }: { preview: ToolPreviewData }) {
         </ul>
       </div>
     );
+  if (preview.forget) {
+    return (
+      <div className="email-preview">
+        <div className="email-label">Forget saved tabs · undo brings them back</div>
+        {section("Delete from saved", preview.forget)}
+      </div>
+    );
+  }
   return (
     <div className="email-preview">
       <div className="email-label">Save my tabs · saved tabs close too · undo reopens all</div>
@@ -296,6 +305,9 @@ function describeCall({ name, args, preview }: ToolCall): string {
   }
   if (name === "install_tool" && args && "proposal_id" in args) {
     return "Add a new tool I built. Its tests and code are on screen.";
+  }
+  if (name === "forget_saved_tabs" && preview?.forget) {
+    return `Delete ${preview.forget.length} saved tab${preview.forget.length === 1 ? "" : "s"} for good.`;
   }
   if (name === "save_tabs" && preview?.kind === "tabs") {
     const n = (key: "read_later" | "todo" | "close" | "search") => preview[key]?.length ?? 0;
