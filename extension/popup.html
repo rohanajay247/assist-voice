@@ -1,17 +1,72 @@
 <!doctype html>
 <meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500&family=Source+Serif+4:wght@600&display=swap">
 <style>
-  body { font: 13px system-ui, sans-serif; width: 260px; margin: 12px; color: #1d1d1f; }
-  h1 { font-size: 14px; margin: 0 0 8px; }
-  label { display: block; margin-top: 8px; color: #666; }
-  input { width: 100%; box-sizing: border-box; padding: 5px 6px; margin-top: 2px; }
-  button { margin-top: 10px; padding: 5px 10px; }
-  #status { font-weight: 600; }
-  .ok { color: #3a7a55; } .off { color: #a8453c; }
+  /* Same tokens as web/src/index.css, so the popup looks like Assist */
+  :root {
+    --bg: #fafaf8; --text: #1a1a1a; --muted: #6b6b6b; --border: #e5e5e2;
+    --bubble: #f0f0ec; --accent: #2f6feb; --on-accent: #fff;
+    --danger: #a8453c; --success: #3a7a55;
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+    --serif: "Source Serif 4", Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141414; --text: #ededed; --muted: #9a9a9a; --border: #2a2a2a;
+      --bubble: #222; --accent: #5b8def; --danger: #d9837a; --success: #6fbf8b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 300px; padding: 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.45 var(--sans); }
+  header { display: flex; align-items: center; gap: 10px; }
+  header img { width: 28px; height: 28px; }
+  h1 { margin: 0; font: 600 21px/1 var(--serif); }
+  .sub { margin: 4px 0 14px; color: var(--muted); font-size: 13px; }
+  .status { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+            border: 1px solid var(--border); border-radius: 10px; background: var(--bubble);
+            font: 12px var(--mono); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .status.ok .dot { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); }
+  .status.off .dot { background: var(--danger); }
+  .status.paused .dot { background: var(--muted); }
+  .switch { margin: 0 0 0 auto; position: relative; width: 34px; height: 20px; flex: none; cursor: pointer; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--border); transition: background .15s; }
+  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+                        border-radius: 50%; background: #fff; transition: transform .15s; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(14px); }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; list-style: none; }
+  summary::before { content: "›"; display: inline-block; width: 12px; margin-right: 4px; text-align: center; transition: transform .15s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  label { display: block; margin-top: 10px; color: var(--muted); font-size: 12px; }
+  input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border);
+          border-radius: 8px; background: var(--bg); color: var(--text); font: 13px var(--mono); }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  button { margin-top: 12px; width: 100%; padding: 9px; border: 0; border-radius: 999px;
+           background: var(--accent); color: var(--on-accent); font: 500 14px var(--sans); cursor: pointer; }
+  button:hover { filter: brightness(1.08); }
+  .hint { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+  .hint b { color: var(--text); font-weight: 500; }
 </style>
-<h1>Assist · Save my tabs</h1>
-<div>Status: <span id="status">…</span></div>
-<label>API address <input id="apiUrl" placeholder="http://localhost:8000"></label>
-<label>Access token <input id="token" type="password" placeholder="ASSIST_ACCESS_TOKEN (if set)"></label>
-<button id="save">Save</button>
+<header>
+  <img src="icons/icon48.png" alt="">
+  <h1>Assist</h1>
+</header>
+<p class="sub">Save my tabs</p>
+<div id="status" class="status">
+  <span class="dot"></span><span id="statusText">checking…</span>
+  <label class="switch" title="Connect or disconnect"><input id="enabled" type="checkbox"><span></span></label>
+</div>
+<p class="hint">Say <b>“save my tabs”</b> to Assist to sort, save and close them.</p>
+<details id="settings">
+  <summary>Connection settings</summary>
+  <label>API address <input id="apiUrl" placeholder="http://localhost:8000"></label>
+  <label>Access token <input id="token" type="password" placeholder="ASSIST_ACCESS_TOKEN"></label>
+  <button id="save">Save</button>
+</details>
 <script src="popup.js"></script>

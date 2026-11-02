@@ -3,8 +3,31 @@
   "name": "Assist: Save my tabs",
   "version": "0.1.0",
   "description": "Lets your Assist voice assistant list, close and reopen your tabs.",
-  "permissions": ["tabs", "storage", "alarms"],
-  "host_permissions": ["http://localhost:8000/*", "http://127.0.0.1:8000/*"],
-  "background": { "service_worker": "background.js" },
-  "action": { "default_title": "Assist", "default_popup": "popup.html" }
+  "permissions": [
+    "tabs",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Assist",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }

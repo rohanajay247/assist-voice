@@ -6,19 +6,24 @@
 // Chrome keeps the service worker alive while the socket is busy, so a
 // ping every 20 s holds it open; an alarm reconnects if Chrome stopped it.
 
-const DEFAULTS = { apiUrl: "http://localhost:8000", token: "" };
+const DEFAULTS = { apiUrl: "http://localhost:8000", token: "", enabled: true };
+const ICONS = { 16: "icons/icon16.png", 32: "icons/icon32.png", 48: "icons/icon48.png" };
 let socket = null;
 let pingTimer = null;
 let status = "disconnected";
 
 async function settings() {
-  return { ...DEFAULTS, ...(await chrome.storage.local.get(["apiUrl", "token"])) };
+  return { ...DEFAULTS, ...(await chrome.storage.local.get(["apiUrl", "token", "enabled"])) };
 }
 
 function setStatus(s) {
   status = s;
-  chrome.action.setBadgeText({ text: s === "connected" ? "" : "off" });
+  chrome.action.setIcon({ path: ICONS });
+  chrome.action.setBadgeText({ text: s === "connected" ? "" : s === "paused" ? "II" : "off" });
   chrome.action.setBadgeBackgroundColor({ color: "#a8453c" });
+  chrome.action.setTitle({
+    title: s === "connected" ? "Assist · connected" : s === "paused" ? "Assist · paused" : "Assist · not connected",
+  });
 }
 
 async function handle(msg) {
@@ -46,7 +51,8 @@ async function handle(msg) {
 
 async function connect() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
-  const { apiUrl, token } = await settings();
+  const { apiUrl, token, enabled } = await settings();
+  if (!enabled) return setStatus("paused"); // user disconnected: stay off until turned back on
   const url = apiUrl.replace(/^http/, "ws").replace(/\/$/, "") + "/ext/ws" +
     (token ? `?token=${encodeURIComponent(token)}` : "");
   setStatus("connecting");
@@ -70,9 +76,10 @@ async function connect() {
     }
     socket?.send(JSON.stringify({ id: msg.id, ...reply }));
   };
-  socket.onclose = () => {
+  socket.onclose = async () => {
     clearInterval(pingTimer);
     socket = null;
+    if (!(await settings()).enabled) return setStatus("paused");
     setStatus("disconnected");
     setTimeout(connect, 5000); // API restarted (--reload): try again soon
   };
