@@ -228,3 +228,6 @@ web/.env
 
 # Secrets: OAuth client and tokens
 secrets/
+
+# Tool builds that weren't installed (kept locally so undo can reinstall)
+mcp_servers/generated/_proposals/

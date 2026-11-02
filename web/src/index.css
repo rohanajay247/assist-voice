@@ -276,6 +276,47 @@ input {
   line-height: 1.55;
 }
 
+/* Built-tool preview on the approval card (reuses .email-preview) */
+
+.tool-tests {
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.test-ok {
+  color: var(--success);
+}
+
+.test-fail {
+  color: var(--danger);
+}
+
+.tool-code {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.tool-code summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tool-code pre {
+  margin: 6px 0 0;
+  max-height: 280px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
 /* Step panel */
 
 .steps {

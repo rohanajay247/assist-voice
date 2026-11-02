@@ -13,6 +13,20 @@ type Role = "user" | "assistant";
 interface ToolCall {
   name: string;
   args: Record<string, unknown>;
+  preview?: ToolPreviewData | null; // extra detail for the approval card
+}
+
+// What install_tool / build_tool show on the approval card (see preview_of in agent.py)
+interface ToolPreviewData {
+  kind: "tool" | "build";
+  name: string;
+  description: string;
+  network: boolean;
+  tools?: { name: string; description: string }[];
+  passed?: number;
+  total?: number;
+  tests?: { call: string; output: string; ok: boolean }[];
+  code?: string;
 }
 
 // One line in the step panel, built by the server from this turn's messages
@@ -160,6 +174,58 @@ function EmailPreview({ args }: { args: Record<string, unknown> }) {
   );
 }
 
+// A tool Assist built: what it does, its test results and the code, before it's added
+function ToolPreview({ preview }: { preview: ToolPreviewData }) {
+  if (preview.kind === "build") {
+    return (
+      <div className="email-preview">
+        <div className="email-label">Build a tool · with internet access</div>
+        <div className="email-meta">
+          <span className="email-key">Name</span>
+          <span className="email-value">{preview.name}</span>
+        </div>
+        <div className="email-body">{preview.description}</div>
+      </div>
+    );
+  }
+  const allPassed = preview.passed === preview.total && (preview.total ?? 0) > 0;
+  return (
+    <div className="email-preview">
+      <div className="email-label">
+        New tool · runs in the sandbox ·{" "}
+        {preview.network ? "internet access, asks before each use" : "no internet"}
+      </div>
+      <div className="email-meta">
+        <span className="email-key">Name</span>
+        <span className="email-value">{preview.name}</span>
+      </div>
+      <div className="email-meta">
+        <span className="email-key">Tools</span>
+        <span className="email-value">
+          {(preview.tools ?? []).map((t) => t.name).join(", ")}
+        </span>
+      </div>
+      <div className="email-meta">
+        <span className="email-key">Tests</span>
+        <span className={allPassed ? "email-value test-ok" : "email-value test-fail"}>
+          {preview.passed}/{preview.total} passed
+        </span>
+      </div>
+      <ul className="tool-tests">
+        {(preview.tests ?? []).map((t, i) => (
+          <li key={i} className={t.ok ? "test-ok" : "test-fail"}>
+            {t.ok ? "✓" : "✗"} {t.call} → {t.output}
+          </li>
+        ))}
+      </ul>
+      <details className="tool-code">
+        <summary>Show code</summary>
+        <pre>{preview.code}</pre>
+      </details>
+    </div>
+  );
+}
+
 // --- Voice -----------------------------------------------------------------
 
 const MIN_RECORDING_MS = 300; // shorter presses are treated as accidental taps
@@ -193,6 +259,12 @@ function describeCall({ name, args }: ToolCall): string {
         ? ` about "${args.subject}"`
         : "";
     return `Create a draft email to ${String(args.to ?? "someone")}${subject}. It won't be sent.`;
+  }
+  if (name === "install_tool" && args && "proposal_id" in args) {
+    return "Add a new tool I built. Its tests and code are on screen.";
+  }
+  if (name === "build_tool") {
+    return `Build a tool called ${String(args.name ?? "")} that can use the internet.`;
   }
   const action = name.replace(/_/g, " ");
   const details = Object.values(args).filter(
@@ -1081,6 +1153,8 @@ export default function App() {
               {approval.map((tc, j) =>
                 tc.name === "create_draft" ? (
                   <EmailPreview key={j} args={tc.args} />
+                ) : tc.preview ? (
+                  <ToolPreview key={j} preview={tc.preview} />
                 ) : (
                   <div key={j} className="tools">
                     <span className="tool" title={formatToolCall(tc, 2000)}>

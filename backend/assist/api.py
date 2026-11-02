@@ -26,7 +26,8 @@ from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from backend.assist.graph.agent import DENIED, SAFE_TOOLS, WRITE_TOOLS, build_graph
+from backend.assist.graph.agent import DENIED, WRITE_TOOLS, build_graph, needs_approval
+from backend.assist.toolbuilder import registry
 
 load_dotenv()
 
@@ -86,6 +87,7 @@ class ApproveRequest(BaseModel):
 class ToolCall(BaseModel):
     name: str
     args: dict  # the UI shows these as "get_weather · Albstadt · 2"
+    preview: dict | None = None  # approval card detail, e.g. a built tool's code and tests
 
 
 class Step(BaseModel):
@@ -149,7 +151,7 @@ def build_steps(turn: list, interrupted: bool) -> list[Step]:
         if isinstance(m, AIMessage):
             for tc in m.tool_calls:
                 steps.append(Step(kind="plan", label=f"Decided to call {tc['name']}", status="ok"))
-                if tc["name"] in SAFE_TOOLS:
+                if not needs_approval(tc):
                     continue  # safe tools skip approval
                 result = results.get(tc["id"])
                 if result is not None:
@@ -227,6 +229,15 @@ def check_image(image: str) -> None:
         raise HTTPException(413, "Image is larger than 4 MB")
 
 
+async def rebuild_if_tools_changed() -> None:
+    """A built tool was installed or removed (or undone): rebuild the graph so
+    the next message sees the new tool list. Same checkpointer, so every
+    conversation and pending approval carries over."""
+    global graph
+    if registry.consume_changed():
+        graph = await build_graph(checkpointer=graph.checkpointer)
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
     # Send only the new message; add_messages appends it to the saved history.
@@ -241,6 +252,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
     else:
         message = HumanMessage(req.message)
     result = await graph.ainvoke({"messages": [message]}, make_config(req.thread_id))
+    await rebuild_if_tools_changed()
     return to_response(result)
 
 
@@ -250,6 +262,7 @@ async def approve(req: ApproveRequest) -> ChatResponse:
     # returns this value, and the graph continues from there.
     decision = "approve" if req.approved else "deny"
     result = await graph.ainvoke(Command(resume=decision), make_config(req.thread_id))
+    await rebuild_if_tools_changed()
     return to_response(result)
 
 @app.post("/transcribe", response_model=TranscribeResponse)

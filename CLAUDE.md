@@ -6,8 +6,8 @@ Open-source voice assistant that works across tools via MCP. Portfolio project,
 ## Stack
 
 Python 3.12 + uv · FastAPI · LangGraph · langchain-mcp-adapters · MCP SDK (FastMCP)
-· LiteLLM → Gemini (Flash-Lite default, Flash for multi-step/vision, Pro only for
-tool-building) · Groq Whisper (STT) · browser TTS · React + TypeScript PWA (Vite)
+· LiteLLM → Gemini (Flash-Lite default, Flash for multi-step/vision; tool-building
+also Flash-Lite) · Groq Whisper (STT) · browser TTS · React + TypeScript PWA (Vite)
 · SQLite (later Supabase) · Langfuse (EU) · Docker · Azure. Keep costs near zero.
 
 ## Layout (planned)
