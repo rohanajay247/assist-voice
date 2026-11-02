@@ -412,22 +412,29 @@ def get_thread(thread_id: str) -> dict:
 
 @mcp.tool()
 @gmail_tool
-def create_draft(to: str, subject: str, body: str, reply_to_message_id: str | None = None) -> dict:
+def create_draft(subject: str, body: str, to: str = "", reply_to_message_id: str | None = None) -> dict:
     """Create a Gmail DRAFT. It is never sent: the user reviews and sends it in Gmail.
-    `to` is one or more addresses, comma-separated. To reply in an existing
+    `to` is one or more real addresses, comma-separated. If the user hasn't given an
+    address and wants the draft anyway, leave `to` empty: they add it in Gmail.
+    Never use a placeholder like example.com. To reply in an existing
     conversation, pass the id of the message being answered (from get_thread)
     as reply_to_message_id.
     Write `body` as a real email with line breaks: the greeting on its own line,
     a blank line, short paragraphs separated by blank lines, then the sign-off
     on its own line. Plain text, no markdown."""
-    # "anna@x.de" and "Anna <anna@x.de>" are fine; a bare name is not
+    # "anna@x.de" and "Anna <anna@x.de>" are fine; a bare name is not.
+    # Empty is fine too: a draft without a recipient, filled in later in Gmail.
     addresses = [parseaddr(a)[1] for a in to.split(",") if a.strip()]
-    if not addresses or not all(re.fullmatch(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+", a) for a in addresses):
-        return {"error": f"'to' must be email addresses like name@example.com, got {to!r}. Ask the user for the address."}
+    if not all(re.fullmatch(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+", a) for a in addresses):
+        return {"error": f"'to' must be real email addresses, got {to!r}. Ask the user, or leave it empty."}
+    placeholder = re.compile(r"@(example\.(com|org|net)|test|invalid|localhost)$|^(placeholder|recipient)@", re.I)
+    if any(placeholder.search(a) for a in addresses):
+        return {"error": f"{to!r} is a placeholder, not a real address. Leave 'to' empty instead."}
     gmail = _gmail()
     body = _email_layout(body)
     msg = EmailMessage()
-    msg["To"] = to
+    if addresses:
+        msg["To"] = to
     msg["Subject"] = subject
     msg.set_content(body)
     message: dict = {}

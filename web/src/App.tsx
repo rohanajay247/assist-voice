@@ -195,7 +195,7 @@ function EmailPreview({ args }: { args: Record<string, unknown> }) {
       <div className="email-label">Draft email · not sent</div>
       <div className="email-meta">
         <span className="email-key">To</span>
-        <span className="email-value">{field("to")}</span>
+        <span className="email-value">{field("to") || "(no recipient yet: add it in Gmail)"}</span>
       </div>
       <div className="email-meta">
         <span className="email-key">Subject</span>
@@ -301,7 +301,7 @@ function describeCall({ name, args, preview }: ToolCall): string {
       typeof args.subject === "string" && args.subject
         ? ` about "${args.subject}"`
         : "";
-    return `Create a draft email to ${String(args.to ?? "someone")}${subject}. It won't be sent.`;
+    return `Create a draft email to ${String(args.to || "no one yet")}${subject}. It won't be sent.`;
   }
   if (name === "install_tool" && args && "proposal_id" in args) {
     return "Add a new tool I built. Its tests and code are on screen.";

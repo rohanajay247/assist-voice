@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import litellm
 from langchain_core.tools import tool
 
+from backend.assist import memory
 from backend.assist.actions import actions_since
 
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -70,6 +71,7 @@ ACTION_LABELS = {
     "save_tabs": "tab clean-ups", "open_saved_tabs": "saved tabs reopened",
     "mark_tabs_done": "saved to-dos finished", "forget_saved_tabs": "saved-tab flushes",
     "install_tool": "tools built", "remove_tool": "tools removed",
+    "remember": "preferences remembered", "forget_memory": "preferences forgotten",
 }
 
 
@@ -146,7 +148,7 @@ async def _summarise(routine: str, sources: dict, skipped: list[str]) -> str:
         for name, value in sources.items()
     )
     messages = [
-        {"role": "system", "content": f"{STYLE}\n\n{PROMPTS[routine]}"},
+        {"role": "system", "content": f"{STYLE}\n\n{PROMPTS[routine]}{memory.prompt_block()}"},
         {"role": "user", "content": (
             f"Now: {now:%A %Y-%m-%d %H:%M} (Berlin).\n"
             f"Unavailable sources: {', '.join(skipped) or 'none'}\n\n{data}"
