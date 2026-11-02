@@ -180,3 +180,40 @@ Learning journal (Journal + Code walkthrough tabs): https://claude.ai/artifact/5
 
 **First task Day 5**
 - Brief on the tool-building flow (Assist writes a new MCP server, tests it in Docker, I approve before it's added), then I write the core of it; Save-my-tabs extension after
+
+## Day 5 — Mon 2 Nov (showstoppers: tool-building + Save my tabs)
+
+**Done**
+- Tool-building flow (`backend/assist/toolbuilder/`): `build_tool` → Flash-Lite writes a FastMCP `server.py` + `cases.json` → static check (`checks.py`: import allowlist, no eval/open/getattr/dunders) → Docker smoke test (`sandbox/`, image `assist-sandbox`: no network, read-only, non-root, 256 MB, 0.5 CPU, 64 pids, no secrets) → up to 2 retries with the errors fed back → `install_tool` behind the approval card (tools, every test with output, code) → `mcp_servers/generated/<name>/` + `registry.json` → graph rebuilt with the same checkpointer
+- Built tools always run inside Docker, also after approval (`docker run -i … python /tool/server.py` over stdio). Offline tools are safe; network tools ask before the build and before each use
+- Undo: `install_tool` ↔ `remove_tool` (proposal folder kept so undo can reinstall); `list_built_tools`
+- `TOOLBUILDER_ENABLED=false` hides all of it (hosted demo: no Docker there)
+- Tested on Windows: sandbox 4/4; "build a workdays tool" → approve → "workdays 2–13 Nov" = 10 → undo removed it
+- Save my tabs: Chrome MV3 extension (`extension/`) keeps a WebSocket to `/ext/ws` (token via `?token=`, ping every 20 s, alarm reconnects); commands `list` / `close` / `open`
+- Bridge `backend/assist/browser.py`: `_ask()` sends `{id, cmd}` and waits on a Future until the reply with the same id arrives
+- Tools: `list_open_tabs` (tabs numbered 1, 2, 3; pinned tabs and Assist itself never shown), `save_tabs(read_later, todo, keep_open)` (everything else closes; approval card lists every tab), `search_saved_tabs` (query, category, day), `open_saved_tabs` (saved links only). Searches are detected by URL in code, never by the model: closed and remembered as `search` ("what was I searching today?")
+- Saved tabs in SQLite (`tabs.db`, gitignored), one batch per save; undo reopens a whole save (skips tabs already open) or closes a reopened tab
+- Extension popup in the Assist style (logo icon, status pill, on/off switch to disconnect, settings fold away)
+- `require_token` accepts the header or `?token=` (browser WebSockets can't set headers); `websockets` added explicitly
+
+**Broken / skipped**
+- Tool-building is local-only: hosted containers can't run Docker and lose `mcp_servers/generated/` on restart. Later: code + registry in Supabase, sandbox via Azure Container Apps dynamic sessions or E2B
+- Hosted tabs need exactly one API replica (the socket lives in memory) and saved tabs in Supabase; one global socket = one user
+- Flash-Lite sorted tabs badly with raw Chrome ids and put searches in read later / keep open on its own: fixed with short numbers and server-side search detection
+- No live Pro / Docker test from the cloud side; everything tested on the laptop
+- Still open: `MemorySaver` RAM only, ~2.3s per stdio call (+ Docker start for built tools), step panel not live, "tomorrow" after midnight, step arg order, geocoding "Albstadt-Ebingen", approval preview vs `_email_layout`, undo not parallel-safe in code
+
+**Decisions**
+- Flash-Lite for tool-building, not Pro (costs near zero); `TOOLBUILDER_MODEL` can override
+- Generated code is untrusted input: static check + sandbox + approval, and it runs sandboxed forever
+- Tab tools are local tools in the API process (an MCP server started per call can't hold a socket)
+- The server owns the risky parts (numbering, protected tabs, searches); the model only sorts read later vs to-do
+- Searches are closed but remembered; opening a saved tab is undoable without approval
+- Claude may write core parts when asked; commits stay authored by me only, no AI trailers
+
+**How to run**
+- Same as Day 4, plus Docker Desktop running and once: `powershell -ExecutionPolicy Bypass -File scripts/build_sandbox.ps1`
+- Extension: `chrome://extensions` → Developer mode → Load unpacked → `extension/`; paste `ASSIST_ACCESS_TOKEN` in the popup
+
+**First task Day 6**
+- Brief on routines ("Start my day", "Wrap up") and "Where was I?", then build them; memory, weekly receipt, Claude usage + handoff, WG-Tafel after
