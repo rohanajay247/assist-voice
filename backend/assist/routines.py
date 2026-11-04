@@ -164,8 +164,14 @@ async def _summarise(routine: str, sources: dict, skipped: list[str]) -> str:
         )},
     ]
     try:
-        res = await litellm.acompletion(model=MODEL, messages=messages, temperature=0.2)
-        return (res.choices[0].message.content or "").strip()
+        # Gemini sometimes returns an empty message; the agent then says "have a great day"
+        # instead of the brief. One retry fixes it; never hand an empty brief back.
+        for _ in range(2):
+            res = await litellm.acompletion(model=MODEL, messages=messages, timeout=60)
+            text = (res.choices[0].message.content or "").strip()
+            if text:
+                return text
+        return f"Couldn't write the brief (empty reply from the model). Sources: {', '.join(sources)}."
     except Exception as e:  # model down: still give the user something
         return f"Couldn't write the brief ({e.__class__.__name__}). Sources: {', '.join(sources)}."
 

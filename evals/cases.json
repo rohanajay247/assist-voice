@@ -8,6 +8,10 @@
   {"id": "notes-03", "cat": "notes", "after": "notes-02", "input": "Delete it",
    "expect": {"tools": ["delete_note"], "pending": true, "resume": ["approve"], "state": {"notes": -1}}},
 
+  {"id": "approve-01", "cat": "notes", "input": "Save a note: buy milk",
+   "expect": {"tools": ["add_note"], "pending": true, "resume": ["approve"],
+              "then_approve": {"decision": "deny", "status": 409}, "state": {"notes": 1}}},
+
   {"id": "weather-01", "cat": "weather", "input": "Do I need an umbrella tomorrow?",
    "expect": {"tools": ["get_weather"], "args": {"get_weather": {"city": "Albstadt"}}, "pending": false}},
 

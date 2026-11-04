@@ -5,7 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 // The backend's routes. Vite forwards them, so the browser (or the phone via
 // the tunnel) only ever talks to one origin. 127.0.0.1, not localhost:
 // uvicorn listens on IPv4 only and Node may resolve localhost to IPv6.
-const API_ROUTES = ['/auth', '/chat', '/approve', '/transcribe']
+const API_ROUTES = ['/auth', '/chat', '/approve', '/threads', '/transcribe']
 // ASSIST_API_TARGET points the proxy elsewhere when port 8000 is taken
 const API_TARGET = process.env.ASSIST_API_TARGET ?? 'http://127.0.0.1:8000'
 const proxy = Object.fromEntries(API_ROUTES.map((route) => [route, API_TARGET]))

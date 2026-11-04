@@ -29,6 +29,7 @@ Results go to `evals/results/<timestamp>.json`, and `evals/results/latest.md` ho
 | `no_tools`                  | no tool at all                                                                                         |
 | `pending`                   | the first response paused for approval                                                                 |
 | `resume`                    | answers to pauses in order: `approve`, `deny`, `approve_if:<tool>`                                     |
+| `then_approve`              | one more `/approve` after the pauses, e.g. `{"decision": "deny", "status": 409}`: expected HTTP status |
 | `args`                      | `{tool: {arg: want}}`: substring, `re:<regex>`, or `""` for empty. Checked only if the tool was called |
 | `event_minutes`             | length of the created event                                                                            |
 | `state`                     | change in `/demo/state` counts: an int, or `">0"`                                                      |

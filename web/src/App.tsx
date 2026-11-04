@@ -124,6 +124,9 @@ class UnauthorizedError extends Error {}
 
 const TOKEN_EXPIRED = "Your access token stopped working. Enter it again.";
 
+// Shown when an approval answer got lost but the server had already handled it
+const ALREADY_HANDLED = "This was already handled.";
+
 function tokenHeaders(token: string, init?: HeadersInit): Headers {
   const headers = new Headers(init);
   if (token) headers.set("X-Assist-Token", token);
@@ -927,14 +930,19 @@ export default function App() {
     setAuth("locked");
   }
 
-  async function run(request: () => Promise<ChatResponse>) {
+  // `recover` runs after a failed request; true means it showed the real outcome
+  async function run(
+    request: () => Promise<ChatResponse>,
+    recover?: () => Promise<boolean>,
+  ) {
     setError(null);
     setPending(true);
     try {
       show(await request());
     } catch (e) {
       if (e instanceof UnauthorizedError) lock(TOKEN_EXPIRED);
-      else setError("Couldn’t reach Assist. Try again.");
+      else if (!(recover && (await recover())))
+        setError("Couldn’t reach Assist. Try again.");
     } finally {
       setPending(false);
       inputRef.current?.focus();
@@ -990,7 +998,44 @@ export default function App() {
 
   function decide(approved: boolean) {
     if (pending) return;
-    run(() => post("/approve", { thread_id: threadId.current, approved }));
+    run(
+      () => post("/approve", { thread_id: threadId.current, approved }),
+      resync,
+    );
+  }
+
+  // The /approve answer got lost (network change, 409, server error): ask the
+  // server what really happened instead of keeping stale Approve/Deny buttons.
+  // Returns true when it could show the real outcome.
+  async function resync(): Promise<boolean> {
+    let data: ChatResponse;
+    try {
+      const res = await apiFetch(`/threads/${threadId.current}`, {
+        method: "GET",
+      });
+      data = await res.json();
+    } catch {
+      return false; // server unreachable: keep the card, show the usual error
+    }
+    if (data.pending && data.pending.length > 0) {
+      // Still waiting: the click never landed. Keep the card so it can be retried.
+      setApproval(data.pending);
+      setApprovalSteps(data.steps ?? []);
+      return false;
+    }
+    setApproval(null);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: data.reply
+          ? `${ALREADY_HANDLED} ${data.reply}`
+          : ALREADY_HANDLED,
+        toolCalls: data.tool_calls,
+        steps: data.steps,
+      },
+    ]);
+    return true;
   }
 
   function onSubmit(e: FormEvent) {

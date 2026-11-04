@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 import httpx
+import litellm
 from dotenv import load_dotenv
 from fastapi import (
     Depends, FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketException,
@@ -270,6 +271,64 @@ async def rebuild_if_tools_changed() -> None:
         graph = await build_graph(checkpointer=graph.checkpointer)
 
 
+# Gemini (via LiteLLM) unavailable: quota or rate limit, timeout, 5xx, no
+# connection. Anything else is a real bug and still fails loudly.
+MODEL_ERRORS = (
+    litellm.RateLimitError,
+    litellm.Timeout,
+    litellm.ServiceUnavailableError,
+    litellm.InternalServerError,
+    litellm.BadGatewayError,
+    litellm.APIConnectionError,
+)
+MODEL_DOWN = (
+    "The AI service isn't available right now (quota or outage). "
+    "Nothing was changed, try again in a few minutes."
+)
+# The approved change ran, then the model failed while writing its reply
+MODEL_DOWN_AFTER_CHANGE = (
+    "The AI service isn't available right now (quota or outage), so I couldn't finish "
+    "my reply. The change you approved did go through (see the steps), try again in a "
+    "few minutes."
+)
+
+
+async def model_unavailable(config: dict) -> ChatResponse:
+    """A normal reply instead of a 500 when the model fails mid-turn.
+
+    The checkpointer kept everything up to the failed model call, so the
+    steps and tool labels still show what ran this turn, and the reply
+    says honestly whether anything changed.
+    """
+    messages = (await graph.aget_state(config)).values.get("messages", [])
+    if not any(isinstance(m, HumanMessage) for m in messages):
+        return ChatResponse(reply=MODEL_DOWN, tool_calls=[])
+    start = max(i for i, m in enumerate(messages) if isinstance(m, HumanMessage))
+    changed = any(
+        isinstance(m, ToolMessage) and m.name in UNDOABLE
+        and m.content != DENIED and not returned_error(m)
+        for m in messages[start + 1:]
+    )
+    # The reply stands in for the model's missing last message (only in this
+    # response; the saved thread is untouched). No __interrupt__: never pending.
+    reply = AIMessage(MODEL_DOWN_AFTER_CHANGE if changed else MODEL_DOWN)
+    return to_response({"messages": [*messages, reply]})
+
+
+async def run_graph(payload, thread_id: str) -> ChatResponse:
+    """Run one turn (a new message or an approval answer) and shape the response."""
+    config = make_config(thread_id)
+    try:
+        result = await graph.ainvoke(payload, config)
+    except MODEL_ERRORS as e:
+        print(f"Model unavailable ({e.__class__.__name__}): {str(e)[:200]}")
+        response = await model_unavailable(config)
+        await rebuild_if_tools_changed()  # a tool install may have run before the failure
+        return response
+    await rebuild_if_tools_changed()
+    return to_response(result)
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
     # Send only the new message; add_messages appends it to the saved history.
@@ -283,19 +342,43 @@ async def chat(req: ChatRequest) -> ChatResponse:
         ])
     else:
         message = HumanMessage(req.message)
-    result = await graph.ainvoke({"messages": [message]}, make_config(req.thread_id))
-    await rebuild_if_tools_changed()
-    return to_response(result)
+    return await run_graph({"messages": [message]}, req.thread_id)
+
+
+async def waiting_approval(thread_id: str) -> list:
+    """The interrupts this thread is paused at ([] if it isn't waiting for approval)."""
+    snapshot = await graph.aget_state(make_config(thread_id))
+    return list(snapshot.interrupts)
 
 
 @app.post("/approve", response_model=ChatResponse)
 async def approve(req: ApproveRequest) -> ChatResponse:
     # Resume the paused graph. interrupt() inside the approval node
     # returns this value, and the graph continues from there.
+    # Only while it's really paused: a stale or second click (e.g. Deny after the
+    # Approve already went through) must not resume anything.
+    if not await waiting_approval(req.thread_id):
+        raise HTTPException(409, "Nothing is waiting for approval")
     decision = "approve" if req.approved else "deny"
-    result = await graph.ainvoke(Command(resume=decision), make_config(req.thread_id))
-    await rebuild_if_tools_changed()
-    return to_response(result)
+    return await run_graph(Command(resume=decision), req.thread_id)
+
+
+@app.get("/threads/{thread_id}", response_model=ChatResponse)
+async def thread_state(thread_id: str) -> ChatResponse:
+    """The latest turn of a thread as the server has it: pending approval,
+    tool calls, steps and the last reply. The UI reloads this when an
+    /approve answer got lost, instead of trusting its own buttons."""
+    snapshot = await graph.aget_state(make_config(thread_id))
+    messages = snapshot.values.get("messages", [])
+    if not any(isinstance(m, HumanMessage) for m in messages):
+        return ChatResponse(reply="", tool_calls=[])
+    if snapshot.interrupts:
+        return to_response({"messages": messages, "__interrupt__": list(snapshot.interrupts)})
+    last = messages[-1]
+    if isinstance(last, AIMessage) and isinstance(last.content, str):
+        return to_response({"messages": messages})
+    # The turn ended without a reply (e.g. the model failed after a tool ran)
+    return to_response({"messages": [*messages, AIMessage("")]})
 
 @app.websocket("/ext/ws")
 async def extension_socket(ws: WebSocket) -> None:

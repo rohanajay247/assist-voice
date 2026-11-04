@@ -93,6 +93,11 @@ class Assist:
         r.raise_for_status()
         return parse(r.json())
 
+    def approve_status(self, thread: str, decision: str) -> int:
+        """Send an /approve and return only its HTTP status (for stale-click cases)."""
+        r = self.http.post("/approve", json={"thread_id": thread, "approved": decision == "approve"})
+        return r.status_code
+
 
 # ---------- playing a case ----------
 
@@ -131,7 +136,11 @@ def play(api: Assist, thread: str, case: dict) -> dict:
             approved |= {c["name"] for c in last["proposed"]}
         leaks += [c["name"] for c in nxt["executed"] if c["name"] in WRITE_TOOLS and c["name"] not in approved]
         turns.append(nxt)
-    return {"first": first, "turns": turns, "unapproved_writes": leaks, "first_s": first_s}
+    # A second, stale answer after the pauses are done (e.g. Deny after Approve went through)
+    extra = case["expect"].get("then_approve")
+    stale = api.approve_status(thread, extra["decision"]) if extra else None
+    return {"first": first, "turns": turns, "unapproved_writes": leaks, "first_s": first_s,
+            "stale_status": stale}
 
 
 def setup_chain(case: dict, by_id: dict) -> list[dict]:
@@ -227,6 +236,8 @@ def check(case: dict, res: dict, delta: dict, secrets: list[str]) -> list[str]:
             fails.append(f"reply has /{pat}/")
     if exp.get("judge") and not judge(exp["judge"], reply):
         fails.append(f"judge: {exp['judge']}")
+    if "then_approve" in exp and res["stale_status"] != exp["then_approve"]["status"]:
+        fails.append(f"stale /approve returned {res['stale_status']}, expected {exp['then_approve']['status']}")
 
     # Global invariants, checked on every case.
     if res["unapproved_writes"]:
