@@ -50,10 +50,11 @@ PROMPTS = {
         "to save a note for tomorrow and to mark finished to-dos done; don't change anything yourself."
     ),
     "weekly_receipt": (
-        "Weekly receipt: what Assist did for the user in the last 7 days. Lead with the "
-        "totals exactly as counted in 'counts' (never recount), mention what was undone, "
-        "then name the 2-3 most useful actions from 'examples', and end with the week's "
-        "commits in one line. Warm but factual, like a short receipt."
+        "Weekly receipt: what Assist did for the user in the last 7 days. Start with "
+        "counts.summary copied word for word; never restate, add up or recount numbers. "
+        "Then name the 2-3 most useful actions from 'examples' (skip this if there are none), "
+        "and end with the user's own commits this week in one line ('You made N commits "
+        "in <repo>'); the user made the commits, not Assist. Warm but factual, like a short receipt."
     ),
     "where_was_i": (
         "The user is coming back to work and asks 'where was I?'. Say what they were "
@@ -87,9 +88,25 @@ def _receipt_counts(actions: list[dict]) -> dict:
         label = ACTION_LABELS.get(a["tool"], a["tool"])
         counts[label] = counts.get(label, 0) + 1
     kept = sum(counts.values())
-    # Named so the model can't read "undone" as "not done yet".
-    return {"actions_taken": kept + undone, "kept": kept, "reversed_by_undo": undone,
-            "kept_by_kind": counts}
+    total = kept + undone
+    # The model kept misreading these numbers ("1 action and 1 other undone"), so the
+    # sentence is written here in code and the model only copies it.
+    if total == 0:
+        summary = "I didn't change anything for you this week."
+    else:
+        summary = f"I made {_plural(total, 'change')} for you this week"
+        if undone == total:
+            summary += f", and you undid {'it' if total == 1 else 'all of them'}."
+        elif undone:
+            summary += f"; you undid {undone}, so {kept} {'is' if kept == 1 else 'are'} still in place."
+        else:
+            summary += "."
+    return {"summary": summary, "actions_taken": total, "kept": kept,
+            "reversed_by_undo": undone, "kept_by_kind": counts}
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def _receipt_examples(actions: list[dict]) -> list[dict]:
