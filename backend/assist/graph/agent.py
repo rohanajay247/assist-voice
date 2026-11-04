@@ -455,6 +455,30 @@ def reverse_of(name: str, result) -> tuple[str, dict] | None:
     return None
 
 
+def _last_tool_results(messages: list) -> list[ToolMessage]:
+    """The ToolMessages after the latest AIMessage (one tool batch)."""
+    tail = []
+    for m in reversed(messages):
+        if not isinstance(m, ToolMessage):
+            break
+        tail.append(m)
+    return tail[::-1]
+
+
+def after_record(state: MessagesState) -> str:
+    """A routine's brief is already the answer: skip the agent so it can't reword it."""
+    results = _last_tool_results(state["messages"])
+    if results and all(m.name in routines.SAFE for m in results):
+        return "brief"
+    return "agent"
+
+
+async def brief(state: MessagesState):
+    """Pass routine briefs on unchanged (the evals caught the agent dropping facts)."""
+    text = "\n\n".join(_text(m.content) for m in _last_tool_results(state["messages"]))
+    return {"messages": [AIMessage(content=text)]}
+
+
 async def record(state: MessagesState, config: RunnableConfig):
     """Runs after every tool batch: log each successful change with its reverse."""
     messages = state["messages"]
@@ -711,18 +735,20 @@ async def build_graph(checkpointer=None):
         response = await base_model.bind_tools(active).ainvoke(messages)
         return {"messages": [response]}
 
-    # Build the graph:  router → agent → approval → tools → record → agent
+    # Build the graph:  router → agent → approval → tools → record → agent (or → brief → end)
     g = StateGraph(State)
     g.add_node("router", router)               # picks tool groups
     g.add_node("agent", agent)                 # brain
     g.add_node("approval", approval)           # safety layer
     g.add_node("tools", ToolNode(all_tools))   # hands (can run any tool)
     g.add_node("record", record)               # undo log
+    g.add_node("brief", brief)                 # routine briefs, passed on unchanged
     g.add_edge(START, "router")
     g.add_edge("router", "agent")
     g.add_conditional_edges("agent", tools_condition, {"tools": "approval", END: END})
     g.add_edge("tools", "record")              # CHANGED: was tools → agent
-    g.add_edge("record", "agent")
+    g.add_conditional_edges("record", after_record, {"brief": "brief", "agent": "agent"})
+    g.add_edge("brief", END)
 
     # The checkpointer saves state per thread_id; interrupt() needs it to resume.
     return g.compile(checkpointer=checkpointer or MemorySaver())

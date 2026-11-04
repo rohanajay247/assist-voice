@@ -106,7 +106,7 @@
 
   {"id": "receipt-01", "cat": "routines", "after": "undo-01", "input": "What did you do for me this week?",
    "expect": {"tools": ["weekly_receipt"], "pending": false,
-              "judge": "Says one action was taken this week and that it was undone"}},
+              "reply_re": ["I made 1 change for you this week, and you undid it\\."]}},
 
   {"id": "memory-01", "cat": "memory", "input": "Remember I prefer morning meetings",
    "expect": {"tools": ["remember"], "pending": true, "resume": ["approve"], "state": {"memories": 1}}},
