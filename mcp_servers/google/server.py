@@ -246,6 +246,8 @@ def create_event(title: str, start: str, end: str, description: str = "") -> dic
     start_at, end_at = _parse(start), _parse(end)
     if isinstance(start_at, datetime) != isinstance(end_at, datetime):
         return {"error": "Start and end must both be dates (all-day) or both be times."}
+    if not isinstance(start_at, datetime) and end_at == start_at:
+        end_at = start_at + timedelta(days=1)  # one-day all-day event: Google's end is exclusive
     if end_at <= start_at:
         return {"error": f"End ({end}) must be after start ({start})."}
     body = {"summary": title, "start": _when(start_at), "end": _when(end_at)}

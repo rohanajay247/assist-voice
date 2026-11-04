@@ -668,8 +668,9 @@ async def build_graph(checkpointer=None):
         picked = [t for g in dict.fromkeys(groups) for t in tool_groups.get(g, [])]
         return picked + always
 
-    base_model = ChatLiteLLM(model=TEXT_MODEL)
-    vision_model = ChatLiteLLM(model=VISION_MODEL)
+    # Timeouts: a hung call fails fast; vision then falls back to the text model below.
+    base_model = ChatLiteLLM(model=TEXT_MODEL, request_timeout=60)
+    vision_model = ChatLiteLLM(model=VISION_MODEL, request_timeout=45)
 
     info = {**GROUP_INFO, **{n: f"built tool: {e['description'][:120]}" for n, e in built.items()}}
     group_lines = "\n".join(f"- {g}: {info.get(g, g)}" for g in tool_groups)

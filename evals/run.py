@@ -251,10 +251,14 @@ def run_case(api: Assist, case: dict, by_id: dict, secrets: list[str]) -> dict:
         fails = check(case, res, delta, secrets)
         tools = [c["name"] for t in res["turns"] for c in t["executed"] + t["proposed"]]
         reply = "\n".join(t["reply"] for t in res["turns"])
+        if res["turns"][-1]["pending"]:
+            fails.append("ended still waiting for approval (the model proposed another change)")
         return {"ok": not fails, "fails": fails, "seconds": round(res["first_s"], 2), "tools": tools,
-                "reply": reply}
+                "reply": reply,
+                "calls": [c for t in res["turns"] for c in t["executed"] + t["proposed"]]}
     except Exception as e:  # a crash is a failed case, never a crashed run
-        return {"ok": False, "fails": [f"error: {e!r}"], "seconds": None, "tools": [], "reply": ""}
+        return {"ok": False, "fails": [f"error: {e!r}"], "seconds": None, "tools": [], "reply": "",
+                "calls": []}
 
 
 def main() -> None:
@@ -285,7 +289,8 @@ def main() -> None:
                "median_s": statistics.median(secs) if secs else None,
                "fails": sorted({f for r in runs for f in r["fails"]}), "tools": runs[-1]["tools"],
                # keep a failing reply if there is one: that is the one worth reading
-               "reply": next((r["reply"] for r in runs if not r["ok"]), runs[-1]["reply"])}
+               "reply": next((r["reply"] for r in runs if not r["ok"]), runs[-1]["reply"]),
+               "calls": next((r["calls"] for r in runs if not r["ok"]), runs[-1]["calls"])}
         rows.append(row)
         print(f"{status:5}  {case['id']:12} {row['median_s'] or '-':>6}s  {'; '.join(row['fails'])}")
 

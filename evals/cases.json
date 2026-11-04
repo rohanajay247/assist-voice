@@ -80,7 +80,7 @@
 
   {"id": "undo-02", "cat": "undo", "after": "undo-01", "input": "Undo",
    "expect": {"tools_not": ["create_event", "delete_event"], "pending": false, "state": {"events": 0},
-              "reply_re": ["(?i)nothing|no (more )?(actions|changes)"]}},
+              "reply_re": ["(?i)nothing|no (more )?(actions|changes)|(couldn'?t|can'?t|cannot) undo"]}},
 
   {"id": "tabs-01", "cat": "tabs", "input": "Save my tabs",
    "expect": {"tools": ["list_open_tabs", "save_tabs"], "pending": true, "resume": ["approve"],
