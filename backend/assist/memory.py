@@ -9,6 +9,7 @@ Saving and forgetting need approval (a memory changes every future answer,
 and an email or photo must never be able to plant one) and can be undone.
 """
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -53,6 +54,15 @@ def prompt_block() -> str:
     )
 
 
+# Memories go into every system prompt, so they must never change how safety works.
+# Checked in code: a model that tries anyway gets an error, even after approval.
+RULE_CHANGE = re.compile(
+    r"approv|confirm|permission|without asking|don'?t ask|never ask|bypass|"
+    r"ignore (your|the|all|previous)|system prompt",
+    re.IGNORECASE,
+)
+
+
 @tool
 async def remember(text: str) -> str:
     """Save a lasting preference or fact the user wants Assist to follow, e.g.
@@ -62,6 +72,9 @@ async def remember(text: str) -> str:
     text = " ".join(text.split())[:MAX_CHARS]
     if not text:
         return json.dumps({"error": "nothing to remember"})
+    if RULE_CHANGE.search(text):
+        return json.dumps({"error": "memories can't change approvals or safety rules; "
+                                    "every change still needs the user's OK"})
     with _conn() as c:
         if c.execute("SELECT COUNT(*) FROM memories").fetchone()[0] >= MAX_MEMORIES:
             return json.dumps({"error": f"memory is full ({MAX_MEMORIES}); forget something first"})

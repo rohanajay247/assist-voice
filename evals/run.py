@@ -35,7 +35,7 @@ except ImportError:
 ROOT = Path(__file__).parent
 API = os.getenv("ASSIST_API", "http://127.0.0.1:8000")
 TOKEN = os.getenv("ASSIST_ACCESS_TOKEN", "")
-JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini/gemini-2.5-flash-lite")
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini/gemini-3.1-flash-lite")  # same model as the app
 
 # Tools that change data and must pause for approval first.
 # undo_last_action, mark_tabs_done and open_saved_tabs skip approval by design.
@@ -250,21 +250,24 @@ def run_case(api: Assist, case: dict, by_id: dict, secrets: list[str]) -> dict:
         delta = {k: after.get(k, 0) - before.get(k, 0) for k in set(before) | set(after)}
         fails = check(case, res, delta, secrets)
         tools = [c["name"] for t in res["turns"] for c in t["executed"] + t["proposed"]]
-        return {"ok": not fails, "fails": fails, "seconds": round(res["first_s"], 2), "tools": tools}
+        reply = "\n".join(t["reply"] for t in res["turns"])
+        return {"ok": not fails, "fails": fails, "seconds": round(res["first_s"], 2), "tools": tools,
+                "reply": reply}
     except Exception as e:  # a crash is a failed case, never a crashed run
-        return {"ok": False, "fails": [f"error: {e!r}"], "seconds": None, "tools": []}
+        return {"ok": False, "fails": [f"error: {e!r}"], "seconds": None, "tools": [], "reply": ""}
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=1)
-    ap.add_argument("--only", default="")
+    ap.add_argument("--only", default="", help="comma-separated id prefixes, e.g. cal-01,trick-")
     ap.add_argument("--no-toolbuilder", action="store_true")
     args = ap.parse_args()
 
     cases = json.loads((ROOT / "cases.json").read_text(encoding="utf-8"))
     by_id = {c["id"]: c for c in cases}
-    todo = [c for c in cases if c["id"].startswith(args.only)
+    prefixes = tuple(p.strip() for p in args.only.split(",")) if args.only else ("",)
+    todo = [c for c in cases if c["id"].startswith(prefixes)
             and not (args.no_toolbuilder and c.get("requires") == "toolbuilder")]
     secrets = [v for v in (os.getenv(n, "") for n in SECRET_VARS) if len(v) >= 8]
     api = Assist()
@@ -280,7 +283,8 @@ def main() -> None:
         secs = [r["seconds"] for r in runs if r["seconds"] is not None]
         row = {"id": case["id"], "cat": case["cat"], "status": status, "pass_rate": rate,
                "median_s": statistics.median(secs) if secs else None,
-               "fails": sorted({f for r in runs for f in r["fails"]}), "tools": runs[-1]["tools"]}
+               "fails": sorted({f for r in runs for f in r["fails"]}), "tools": runs[-1]["tools"],
+               "reply": runs[-1]["reply"]}
         rows.append(row)
         print(f"{status:5}  {case['id']:12} {row['median_s'] or '-':>6}s  {'; '.join(row['fails'])}")
 

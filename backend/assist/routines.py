@@ -85,7 +85,10 @@ def _receipt_counts(actions: list[dict]) -> dict:
             continue
         label = ACTION_LABELS.get(a["tool"], a["tool"])
         counts[label] = counts.get(label, 0) + 1
-    return {"total_actions": sum(counts.values()), "by_kind": counts, "undone": undone}
+    kept = sum(counts.values())
+    # Named so the model can't read "undone" as "not done yet".
+    return {"actions_taken": kept + undone, "kept": kept, "reversed_by_undo": undone,
+            "kept_by_kind": counts}
 
 
 def _receipt_examples(actions: list[dict]) -> list[dict]:
