@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import litellm
 from langchain_core.tools import tool
 
-from backend.assist import memory
+from backend.assist import clock, demo, memory
 from backend.assist.actions import actions_since
 
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -121,6 +121,11 @@ def _repos() -> list[Path]:
 
 def _git_now() -> list[dict]:
     """Branch and uncommitted changes per repo (the standup server only reads history)."""
+    if demo.DEMO_MODE:  # the seed's repo instead of local checkouts
+        from backend.assist.demo.store import seed
+        git = seed()["git"]
+        return [{"repo": git["repo"], "branch": git["branch"], "uncommitted": git["uncommitted"],
+                 "uncommitted_count": len(git["uncommitted"])}]
     out = []
     for repo in _repos():
         try:
@@ -142,7 +147,7 @@ def _git_now() -> list[dict]:
 
 
 async def _summarise(routine: str, sources: dict, skipped: list[str]) -> str:
-    now = datetime.now(BERLIN)
+    now = clock.now()
     data = "\n\n".join(
         f"## {name}\n{json.dumps(value, ensure_ascii=False, default=str)[:MAX_SECTION_CHARS]}"
         for name, value in sources.items()
@@ -220,7 +225,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
         and tomorrow's first event, then an offer to save a note for tomorrow.
         Use for 'wrap up', 'end my day', 'I'm done for today'. Read the brief out as it is;
         save a note only if the user then agrees."""
-        today = datetime.now(BERLIN).date()
+        today = clock.now().date()
         sources, skipped = await gather({
             "commits today": call("get_git_activity", {"date_from": today.isoformat()}),
             "Assist actions today": recent_actions(_berlin_midnight_utc(today), 50),
@@ -236,7 +241,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
         commits, uncommitted changes), their latest notes and saved tabs, and Assist's
         last actions, with the likely next step. Use for 'where was I?', 'what was I
         doing?', 'catch me up'. Read the brief out as it is."""
-        today = datetime.now(BERLIN).date()
+        today = clock.now().date()
         sources, skipped = await gather({
             "commits last 3 days": call("get_git_activity", {
                 "date_from": (today - timedelta(days=2)).isoformat(),
@@ -256,7 +261,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
         events, drafts, tab clean-ups, tools built, what was undone) plus the week's commits.
         Use for 'what did you do for me this week?', 'weekly receipt', 'my week with Assist'.
         Read it out as it is."""
-        today = datetime.now(BERLIN).date()
+        today = clock.now().date()
         start = today - timedelta(days=6)
 
         async def receipt():

@@ -231,3 +231,6 @@ secrets/
 
 # Tool builds that weren't installed (kept locally so undo can reinstall)
 mcp_servers/generated/_proposals/
+
+# Eval runs (keep latest.md)
+evals/results/*.json

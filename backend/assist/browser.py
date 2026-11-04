@@ -24,8 +24,10 @@ from zoneinfo import ZoneInfo
 from fastapi import WebSocket, WebSocketDisconnect
 from langchain_core.tools import tool
 
+from backend.assist import clock, demo
+
 BERLIN = ZoneInfo("Europe/Berlin")
-DB_PATH = Path(__file__).parent / "tabs.db"  # *.db is gitignored
+DB_PATH = demo.db_path(Path(__file__).parent / "tabs.db")  # *.db is gitignored
 TIMEOUT = 10  # seconds to wait for the extension
 NOT_CONNECTED = (
     "The browser extension isn't connected. Open Chrome with the Assist extension "
@@ -76,11 +78,20 @@ async def serve(ws: WebSocket) -> None:
 
 
 def connected() -> bool:
-    return _socket is not None
+    return demo.DEMO_MODE or _socket is not None
+
+
+def reset_listing() -> None:
+    """Forget the last list_open_tabs numbering (demo reset: the tabs changed)."""
+    global _listed, _searches
+    _listed, _searches = {}, []
 
 
 async def _ask(cmd: str, **payload) -> dict:
     """Send one command to the extension and wait for its answer."""
+    if demo.DEMO_MODE:
+        from backend.assist.demo import fake_browser  # demo: fake tabs instead of Chrome
+        return await fake_browser.ask(cmd, **payload)
     if _socket is None:
         raise ConnectionError(NOT_CONNECTED)
     rid = uuid.uuid4().hex
@@ -135,7 +146,7 @@ with _conn() as c:
 
 
 def _now() -> str:
-    return datetime.now(BERLIN).isoformat(timespec="seconds")
+    return clock.now().isoformat(timespec="seconds")
 
 # ---------- tools ----------
 
@@ -266,7 +277,7 @@ async def search_saved_tabs(
         sql += " AND done_at IS NULL"
     if max_age_days > 0:
         sql += " AND saved_at >= ?"
-        params.append((datetime.now(BERLIN) - timedelta(days=max_age_days)).isoformat(timespec="seconds"))
+        params.append((clock.now() - timedelta(days=max_age_days)).isoformat(timespec="seconds"))
     for word in query.split():
         sql += " AND (title LIKE ? OR url LIKE ?)"
         params += [f"%{word}%", f"%{word}%"]

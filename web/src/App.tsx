@@ -54,14 +54,18 @@ function TabsPreview({ preview }: { preview: ToolPreviewData }) {
   if (preview.forget) {
     return (
       <div className="email-preview">
-        <div className="email-label">Forget saved tabs · undo brings them back</div>
+        <div className="email-label">
+          Forget saved tabs · undo brings them back
+        </div>
         {section("Delete from saved", preview.forget)}
       </div>
     );
   }
   return (
     <div className="email-preview">
-      <div className="email-label">Save my tabs · saved tabs close too · undo reopens all</div>
+      <div className="email-label">
+        Save my tabs · saved tabs close too · undo reopens all
+      </div>
       {section("Read later", preview.read_later)}
       {section("To-do", preview.todo)}
       {section("Searches (closed, remembered)", preview.search)}
@@ -128,13 +132,18 @@ function tokenHeaders(token: string, init?: HeadersInit): Headers {
 
 // Asks the backend whether this token is accepted. "offline" means the
 // server couldn't be reached (or isn't Assist), which is not a lock reason.
-async function checkToken(token: string): Promise<"ok" | "denied" | "offline"> {
+// `demo`: the API runs on fake data (DEMO_MODE), shown as a header badge.
+async function checkToken(
+  token: string,
+): Promise<{ status: "ok" | "denied" | "offline"; demo: boolean }> {
   try {
     const res = await fetch("/auth/check", { headers: tokenHeaders(token) });
-    if (res.status === 401) return "denied";
-    return res.ok ? "ok" : "offline";
+    if (res.status === 401) return { status: "denied", demo: false };
+    if (!res.ok) return { status: "offline", demo: false };
+    const data: { demo?: boolean } = await res.json().catch(() => ({}));
+    return { status: "ok", demo: data.demo === true };
   } catch {
-    return "offline";
+    return { status: "offline", demo: false };
   }
 }
 
@@ -195,7 +204,9 @@ function EmailPreview({ args }: { args: Record<string, unknown> }) {
       <div className="email-label">Draft email · not sent</div>
       <div className="email-meta">
         <span className="email-key">To</span>
-        <span className="email-value">{field("to") || "(no recipient yet: add it in Gmail)"}</span>
+        <span className="email-value">
+          {field("to") || "(no recipient yet: add it in Gmail)"}
+        </span>
       </div>
       <div className="email-meta">
         <span className="email-key">Subject</span>
@@ -231,12 +242,15 @@ function ToolPreview({ preview }: { preview: ToolPreviewData }) {
       </div>
     );
   }
-  const allPassed = preview.passed === preview.total && (preview.total ?? 0) > 0;
+  const allPassed =
+    preview.passed === preview.total && (preview.total ?? 0) > 0;
   return (
     <div className="email-preview">
       <div className="email-label">
         New tool · runs in the sandbox ·{" "}
-        {preview.network ? "internet access, asks before each use" : "no internet"}
+        {preview.network
+          ? "internet access, asks before each use"
+          : "no internet"}
       </div>
       <div className="email-meta">
         <span className="email-key">Name</span>
@@ -250,7 +264,11 @@ function ToolPreview({ preview }: { preview: ToolPreviewData }) {
       </div>
       <div className="email-meta">
         <span className="email-key">Tests</span>
-        <span className={allPassed ? "email-value test-ok" : "email-value test-fail"}>
+        <span
+          className={
+            allPassed ? "email-value test-ok" : "email-value test-fail"
+          }
+        >
           {preview.passed}/{preview.total} passed
         </span>
       </div>
@@ -310,7 +328,8 @@ function describeCall({ name, args, preview }: ToolCall): string {
     return `Delete ${preview.forget.length} saved tab${preview.forget.length === 1 ? "" : "s"} for good.`;
   }
   if (name === "save_tabs" && preview?.kind === "tabs") {
-    const n = (key: "read_later" | "todo" | "close" | "search") => preview[key]?.length ?? 0;
+    const n = (key: "read_later" | "todo" | "close" | "search") =>
+      preview[key]?.length ?? 0;
     return `Save ${n("read_later")} to read later and ${n("todo")} to-dos, then close ${
       n("read_later") + n("todo") + n("close") + n("search")
     } tabs.`;
@@ -330,10 +349,14 @@ function describeCall({ name, args, preview }: ToolCall): string {
 // Common words of each language. Counting them (instead of looking for ä/ö/ü)
 // keeps an English reply English when it quotes a German name or letter.
 const DE_WORDS = new Set(
-  "und ist nicht das ich der den dem des ein eine einen sie wir mit für auf von zu bitte heute morgen wetter ja nein es du bei oder aber wird sind haben".split(" "),
+  "und ist nicht das ich der den dem des ein eine einen sie wir mit für auf von zu bitte heute morgen wetter ja nein es du bei oder aber wird sind haben".split(
+    " ",
+  ),
 );
 const EN_WORDS = new Set(
-  "the and is are to you your of it this that by for with what on in be will a an i can it's there".split(" "),
+  "the and is are to you your of it this that by for with what on in be will a an i can it's there".split(
+    " ",
+  ),
 );
 
 function guessLang(text: string): string {
@@ -778,8 +801,13 @@ const IMAGE_QUALITY = 0.8;
 // Shrink a photo or screenshot and re-encode it as JPEG, returned as a data URL.
 // Phone photos are 3-10 MB; this brings them to a few hundred KB.
 async function resizeImage(file: Blob): Promise<string> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  const bitmap = await createImageBitmap(file, {
+    imageOrientation: "from-image",
+  });
+  const scale = Math.min(
+    1,
+    MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height),
+  );
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
@@ -817,6 +845,7 @@ export default function App() {
   >("idle");
   // "checking" until /auth/check answers; "locked" shows the lock view
   const [auth, setAuth] = useState<"checking" | "locked" | "open">("checking");
+  const [demoMode, setDemoMode] = useState(false); // API runs on fake data
   const [lockMessage, setLockMessage] = useState<string | null>(null);
   const [muted, setMuted] = useState(() => loadPref(MUTE_KEY) === "1");
   const [voiceURI, setVoiceURI] = useState(() => loadPref(VOICE_KEY) ?? "");
@@ -837,12 +866,13 @@ export default function App() {
   // On open: is the saved token (or no token) accepted?
   useEffect(() => {
     const saved = loadToken();
-    checkToken(saved).then((result) => {
-      if (result === "denied") {
+    checkToken(saved).then(({ status, demo }) => {
+      if (status === "denied") {
         saveToken("");
         setLockMessage(saved ? TOKEN_EXPIRED : null);
         setAuth("locked");
       } else {
+        setDemoMode(demo);
         setAuth("open"); // "offline" too: sending then shows the usual error
       }
     });
@@ -1080,11 +1110,12 @@ export default function App() {
 
   // Returns an error message for the lock view, or null once unlocked
   async function unlock(token: string): Promise<string | null> {
-    const result = await checkToken(token);
-    if (result === "denied")
+    const { status, demo } = await checkToken(token);
+    if (status === "denied")
       return "That token didn’t work. Check it and try again.";
-    if (result === "offline")
+    if (status === "offline")
       return "Couldn’t reach Assist. Is the server running?";
+    setDemoMode(demo);
     saveToken(token);
     setLockMessage(null);
     setAuth("open");
@@ -1111,6 +1142,14 @@ export default function App() {
       <header className="column header">
         <LogoMark />
         <span>Assist</span>
+        {demoMode && (
+          <span
+            className="demo-badge"
+            title="Demo mode: fake calendar, email, GitHub, notes and tabs. Nothing real is changed."
+          >
+            Demo mode
+          </span>
+        )}
         <div className="header-actions">
           {voices.length > 0 && (
             <VoiceMenu
@@ -1174,7 +1213,11 @@ export default function App() {
             m.role === "user" ? (
               <div key={i} className="msg-user">
                 {m.image && (
-                  <img className="msg-photo" src={m.image} alt="Photo you sent" />
+                  <img
+                    className="msg-photo"
+                    src={m.image}
+                    alt="Photo you sent"
+                  />
                 )}
                 {m.content}
               </div>

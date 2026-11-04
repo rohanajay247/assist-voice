@@ -25,6 +25,7 @@ from backend.assist.actions import last_action, log_action, mark_undone  # NEW: 
 from backend.assist.toolbuilder import registry  # Day 5: tools Assist builds itself
 from backend.assist.toolbuilder.generator import generate_and_test
 from backend.assist.toolbuilder.sandbox import docker_ready
+from backend.assist import clock, demo  # demo mode: fake servers, ASSIST_NOW clock
 
 load_dotenv()  # loads GEMINI_API_KEY from .env
 
@@ -105,7 +106,7 @@ def system_message() -> SystemMessage:
     Built fresh on every call. The time goes at the end so the rest of the
     prompt stays identical between calls.
     """
-    now = datetime.now(BERLIN)
+    now = clock.now()  # ASSIST_NOW overrides it (demo mode, evals)
     return SystemMessage(
         f"{SYSTEM.content}{memory.prompt_block()} "
         f"It is now {now:%A, %Y-%m-%d %H:%M} in Berlin "
@@ -282,6 +283,10 @@ if os.path.exists(GOOGLE_TOKEN):
     }
 else:
     print(f"{GOOGLE_TOKEN} not found: skipping Google tools (run scripts/google_auth.py)")
+
+# Demo mode: fake Google, GitHub, notes and standup servers on one seeded
+# SQLite DB (weather stays live). No-op when DEMO_MODE is off.
+SERVERS = demo.servers(SERVERS)
 
 WRITE_PREFIXES = ("create_", "update_", "delete_", "merge_", "push_", "add_", "remove_")
 

@@ -29,7 +29,7 @@ from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from backend.assist import browser
+from backend.assist import browser, demo
 from backend.assist.graph.agent import DENIED, UNDOABLE, build_graph, needs_approval
 from backend.assist.toolbuilder import registry
 
@@ -70,6 +70,9 @@ async def lifespan(app: FastAPI):
     # Built once at startup. The checkpointer lives inside the compiled graph,
     # so it lives as long as the server process (RAM only, wiped by --reload).
     global graph
+    if demo.DEMO_MODE:  # every start is a clean demo
+        from backend.assist.demo import store
+        store.reset()
     graph = await build_graph()
     yield
 
@@ -223,7 +226,26 @@ def to_response(result: dict) -> ChatResponse:
 async def auth_check() -> dict:
     # The app-wide require_token dependency does the work: reaching this
     # line means the token is valid (or none is configured).
-    return {"ok": True}
+    # `demo` tells the UI to show its "Demo mode" badge.
+    return {"ok": True, "demo": demo.DEMO_MODE}
+
+
+if demo.DEMO_MODE:
+    from backend.assist.demo import store
+
+    # Only exist in demo mode; behind the same token check as everything else
+
+    @app.post("/demo/reset")
+    async def demo_reset() -> dict:
+        """Back to the seed data; empty undo log, memories and drafts."""
+        store.reset()
+        browser.reset_listing()
+        return {"ok": True, "state": store.state()}
+
+    @app.get("/demo/state")
+    async def demo_state() -> dict:
+        """Counts the evals compare before and after a case."""
+        return store.state()
 
 
 def check_image(image: str) -> None:

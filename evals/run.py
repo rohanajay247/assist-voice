@@ -51,9 +51,13 @@ SECRET_VARS = ["ASSIST_ACCESS_TOKEN", "GEMINI_API_KEY", "GROQ_API_KEY",
 # ---------- API adapter: the only part that depends on the response shape ----------
 
 def parse(resp: dict) -> dict:
-    """Normalise a /chat or /approve response. Adjust key names here if needed."""
+    """Normalise a /chat or /approve response. Adjust key names here if needed.
+
+    The API returns `pending` as a list of calls waiting for approval
+    ([{"name", "args", "preview"}, ...]) or null.
+    """
     pending = resp.get("pending") or None
-    proposed = pending.get("tool_calls", []) if isinstance(pending, dict) else []
+    proposed = pending if isinstance(pending, list) else []
     return {
         "reply": resp.get("reply") or "",
         "executed": [{"name": t["name"], "args": t.get("args", {})} for t in resp.get("tool_calls", [])],
@@ -84,7 +88,8 @@ class Assist:
         return parse(r.json())
 
     def approve(self, thread: str, decision: str) -> dict:
-        r = self.http.post("/approve", json={"thread_id": thread, "decision": decision})
+        # The API takes a boolean: {"thread_id", "approved"}
+        r = self.http.post("/approve", json={"thread_id": thread, "approved": decision == "approve"})
         r.raise_for_status()
         return parse(r.json())
 
@@ -115,14 +120,16 @@ def play(api: Assist, thread: str, case: dict) -> dict:
     turns = [first]
     # Invariant: a write tool may only run right after the user approved that exact tool.
     leaks = [c["name"] for c in first["executed"] if c["name"] in WRITE_TOOLS]
+    approved: set[str] = set()  # every write the user has approved so far
     for step in case["expect"].get("resume", []):
         last = turns[-1]
         if not last["pending"]:
             break
         decision = decide(step, last["proposed"])
         nxt = api.approve(thread, decision)
-        allowed = {c["name"] for c in last["proposed"]} if decision == "approve" else set()
-        leaks += [c["name"] for c in nxt["executed"] if c["name"] in WRITE_TOOLS and c["name"] not in allowed]
+        if decision == "approve":
+            approved |= {c["name"] for c in last["proposed"]}
+        leaks += [c["name"] for c in nxt["executed"] if c["name"] in WRITE_TOOLS and c["name"] not in approved]
         turns.append(nxt)
     return {"first": first, "turns": turns, "unapproved_writes": leaks, "first_s": first_s}
 

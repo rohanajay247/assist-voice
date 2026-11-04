@@ -148,6 +148,23 @@ input {
   padding: 1px 6px;
 }
 
+/* "Demo mode" pill next to the wordmark */
+
+.demo-badge {
+  flex: none;
+  margin-left: 2px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* Lock view (access token) */
 
 .lock {

@@ -10,13 +10,13 @@ and an email or photo must never be able to plant one) and can be undone.
 """
 import json
 import sqlite3
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from langchain_core.tools import tool
 
-DB_PATH = Path(__file__).parent / "memory.db"  # *.db is gitignored
+from backend.assist import clock, demo
+
+DB_PATH = demo.db_path(Path(__file__).parent / "memory.db")  # *.db is gitignored
 MAX_MEMORIES = 50       # all of them ride along in every prompt, so keep it small
 MAX_CHARS = 300
 
@@ -67,7 +67,7 @@ async def remember(text: str) -> str:
             return json.dumps({"error": f"memory is full ({MAX_MEMORIES}); forget something first"})
         cur = c.execute(
             "INSERT INTO memories (text, created_at) VALUES (?, ?)",
-            (text, datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")),
+            (text, clock.now().isoformat(timespec="seconds")),
         )
     return json.dumps({"id": cur.lastrowid, "text": text})
 

@@ -11,7 +11,9 @@ import json
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "actions.db"  # *.db is gitignored
+from backend.assist import demo
+
+DB_PATH = demo.db_path(Path(__file__).parent / "actions.db")  # *.db is gitignored
 
 
 def get_conn() -> sqlite3.Connection:
