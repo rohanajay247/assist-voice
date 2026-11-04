@@ -284,22 +284,27 @@ def main() -> None:
         row = {"id": case["id"], "cat": case["cat"], "status": status, "pass_rate": rate,
                "median_s": statistics.median(secs) if secs else None,
                "fails": sorted({f for r in runs for f in r["fails"]}), "tools": runs[-1]["tools"],
-               "reply": runs[-1]["reply"]}
+               # keep a failing reply if there is one: that is the one worth reading
+               "reply": next((r["reply"] for r in runs if not r["ok"]), runs[-1]["reply"])}
         rows.append(row)
         print(f"{status:5}  {case['id']:12} {row['median_s'] or '-':>6}s  {'; '.join(row['fails'])}")
 
     scored = [r for r in rows if r["status"] not in ("XFAIL", "XPASS")]
     cats = sorted({r["cat"] for r in rows})
+    # Strict count: a case passes only if it passed every run; flaky cases are listed below.
     lines = ["| Area | Passed | Median latency |", "|---|---|---|"]
     for cat in cats:
         rs = [r for r in scored if r["cat"] == cat]
         if not rs:
             continue
         secs = [r["median_s"] for r in rs if r["median_s"] is not None]
-        lines.append(f"| {cat} | {sum(r['pass_rate'] for r in rs):.0f}/{len(rs)} | "
+        lines.append(f"| {cat} | {sum(r['status'] == 'PASS' for r in rs)}/{len(rs)} | "
                      f"{statistics.median(secs):.1f}s |" if secs else f"| {cat} | - | - |")
-    total = sum(r["pass_rate"] for r in scored)
-    lines.append(f"| **Total** | **{total:.0f}/{len(scored)}** | |")
+    total = sum(r["status"] == "PASS" for r in scored)
+    lines.append(f"| **Total** | **{total}/{len(scored)}** | |")
+    flaky = [r["id"] for r in scored if r["status"] == "FLAKY"]
+    if flaky:
+        lines.append(f"\nFlaky (passed some of {args.runs} runs): {', '.join(flaky)}")
     xf = [r["id"] for r in rows if r["status"] in ("XFAIL", "XPASS")]
     if xf:
         lines.append(f"\nKnown issues, not scored: {', '.join(xf)}")

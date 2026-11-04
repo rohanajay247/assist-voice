@@ -41,7 +41,8 @@ PROMPTS = {
     "start_my_day": (
         "Morning brief. Order: today's events (time and title), emails that look like "
         "they need a reply (sender and what they want), the weather in one phrase, "
-        "saved to-dos. Start with the single most important thing today."
+        "saved to-dos. Start with the single most important thing today, but always list "
+        "every one of today's events with its time and title."
     ),
     "wrap_up": (
         "End-of-day wrap-up. Say what got done today (commits by repo, what Assist "
