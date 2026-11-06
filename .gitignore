@@ -257,3 +257,7 @@ tests/test_speech.py
 # Generated
 web/dist/
 *.ico
+
+# Local working notes, not part of the repo
+/CLAUDE.md
+/PROGRESS.md

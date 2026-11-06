@@ -40,6 +40,11 @@ Copy the settings template (Windows: `Copy-Item .env.example .env`; Mac/Linux: `
 - `GEMINI_API_KEY`: from [Google AI Studio](https://aistudio.google.com/apikey). Create it in a project **without** a billing account and it stays on the free tier, so it can never charge you.
 - `GROQ_API_KEY`: from [console.groq.com/keys](https://console.groq.com/keys), free. Needed for the mic; without it you type.
 
+Also set where you are:
+
+- `HOME_CITY`: your city, e.g. `Kochi`, for the weather when you don't name a city and for "start my day". Empty: it asks which city.
+- `ASSIST_TIMEZONE`: only if your computer's timezone isn't yours. An IANA name such as `Asia/Kolkata`, `Europe/London` or `America/New_York`. Empty: your computer's timezone.
+
 Leave `DEMO_MODE` and `ASSIST_NOW` empty. All the other settings are in the [table below](#all-settings-env).
 
 ## 4. Start it
@@ -80,7 +85,9 @@ To update later: `git pull`, `uv sync`, and `cd web && npm install`.
 | `TOOLBUILDER_MODEL` | Optional | A LiteLLM model name for writing tools. Default: Flash-Lite |
 | `TOOLBUILDER_ENABLED` | Optional | `false` hides tool-building. Default: on |
 | `DEMO_MODE` | Demo only | `true` for fake data |
-| `ASSIST_NOW` | Demo and evals | Fixed Berlin time, e.g. `2026-11-04T09:00` |
+| `HOME_CITY` | Weather without a city, "start my day" | Your city, e.g. `Kochi`. Empty: it asks. Demo mode: Albstadt |
+| `ASSIST_TIMEZONE` | Dates and calendar times | IANA name, e.g. `Asia/Kolkata`. Empty: your computer's timezone. Demo mode: `Europe/Berlin` |
+| `ASSIST_NOW` | Demo and evals | Fixed local time, e.g. `2026-11-04T09:00` |
 | `PUBLIC_DEMO` | Hosted demo only | `true` for the public demo: a sandbox per visitor, limits (see [Public demo](public-demo.md)) |
 | `GOOGLE_CALENDAR_ID` | Optional | Calendar the event tools use. Default: your main calendar (`primary`). For another one: Google Calendar > Settings > the calendar > **Integrate calendar** > Calendar ID |
 

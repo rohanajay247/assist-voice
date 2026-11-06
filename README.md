@@ -24,10 +24,12 @@ Chatbots tell you what to do, and then you do it yourself. Autonomous agents do 
 | "Add lunch with Anna on Friday at noon" | It shows the event and adds it to your calendar after you approve |
 | "What needs a reply from me?" → "Tell Anna Thursday works" | It finds the emails and drafts the reply. It never sends; the draft waits in Gmail |
 | *(photo of a letter)* "What does this letter want?" | Sender, what they want, deadline, in English even if the letter is German, and it offers a calendar reminder |
-| "Why did CI fail?" / "Where was I?" | Reads your GitHub repo and CI log (read-only) and your recent commits |
-| "Save my tabs" | Sorts your open Chrome tabs into read-later and to-do, saves them and closes them |
+| "Why did CI fail?" / "Where was I?" | Reads your GitHub repo and CI log (read-only) and your recent commits. Needs a GitHub token |
+| "Save my tabs" | Sorts your open Chrome tabs into read-later and to-do, saves them and closes them. Needs the [Chrome extension](docs/extension.md) |
 | "What did you do for me this week?" | A receipt of every change it made, and what you undid |
 | "Undo that" | Reverts the last change |
+
+Calendar and email work once you connect your Google account ([setup](docs/setup.md#google-calendar-and-gmail)); the rest works right after install, apart from the two marked above. The [live demo](https://assist-voice-7560957086.europe-west1.run.app) has all of it on fake data.
 
 It also remembers preferences ("sign my emails as Rohan"), reads replies aloud, and can even write itself a small new tool, tested in a sandbox before you approve it.
 
@@ -54,7 +56,7 @@ Assist Voice runs on your own computer, with your own free keys. Your data goes 
    uv sync
    cd web && npm install && cd ..
    ```
-3. **Add your keys:** copy `.env.example` to `.env` and fill in a free [Gemini API key](https://aistudio.google.com/apikey) (required) and a free [Groq key](https://console.groq.com/keys) (for the mic; without it you type).
+3. **Add your keys:** copy `.env.example` to `.env` and fill in a free [Gemini API key](https://aistudio.google.com/apikey) (required) and a free [Groq key](https://console.groq.com/keys) (for the mic; without it you type). Set `HOME_CITY` for the weather; the timezone comes from your computer (or set `ASSIST_TIMEZONE`).
 4. **Start it.** On Windows, `powershell -ExecutionPolicy Bypass -File scripts/install-shortcuts.ps1` gives you an **Assist Voice** shortcut that opens it in its own window. On Mac or Linux, run `cd web && npm run build && cd ..` once, then `uv run uvicorn backend.assist.api:app` and open http://localhost:8000.
 5. **Connect your accounts** (optional): Google Calendar, Gmail and GitHub.
 
