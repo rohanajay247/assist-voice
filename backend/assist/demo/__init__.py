@@ -13,6 +13,7 @@ from contextvars import ContextVar
 from pathlib import Path
 
 from dotenv import load_dotenv
+from backend.assist import clock  # the resolved timezone, passed on to the stdio servers
 
 load_dotenv()  # read before agent.py's load_dotenv(): browser/memory/actions decide their DB on import
 
@@ -75,15 +76,21 @@ def session_key() -> str:
 
 def servers(real: dict) -> dict:
     """In demo mode: the real servers minus Google/GitHub/notes/standup, plus their fakes.
-    Weather stays live. Outside demo mode: `real`, with GOOGLE_CALENDAR_ID passed on."""
+    Weather stays live. Outside demo mode: `real`, with the timezone and GOOGLE_CALENDAR_ID passed on."""
     if not DEMO_MODE:
-        # stdio servers only inherit a few system variables, so pass on the calendar choice
-        calendar = os.getenv("GOOGLE_CALENDAR_ID", "").strip()
-        if calendar and "google" in real:
-            real["google"] = {**real["google"], "env": {"GOOGLE_CALENDAR_ID": calendar}}
+        # stdio servers only inherit a few system variables, so pass on the timezone
+        # (one resolved value, so every server agrees) and the calendar choice
+        for name in ("google", "standup"):
+            if name in real:
+                env = {**real[name].get("env", {}), "ASSIST_TIMEZONE": clock.TZ_NAME}
+                calendar = os.getenv("GOOGLE_CALENDAR_ID", "").strip()
+                if name == "google" and calendar:
+                    env["GOOGLE_CALENDAR_ID"] = calendar
+                real[name] = {**real[name], "env": env}
         return real
     # stdio servers get a minimal environment; pass on what the fakes need
-    env = {"DEMO_MODE": "true", "ASSIST_NOW": os.getenv("ASSIST_NOW", "")}
+    env = {"DEMO_MODE": "true", "ASSIST_NOW": os.getenv("ASSIST_NOW", ""),
+           "ASSIST_TIMEZONE": clock.TZ_NAME}
     fakes = {
         name: {"command": sys.executable, "args": ["-m", module], "transport": "stdio", "env": env}
         for name, module in FAKES.items()

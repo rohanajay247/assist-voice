@@ -15,7 +15,7 @@ import mcp_servers.google.server as real
 from backend.assist import clock
 from backend.assist.demo.store import conn
 
-TZ = clock.BERLIN
+TZ = clock.TZ
 mcp = FastMCP("google")
 
 
@@ -27,7 +27,7 @@ def _stored(moment: date | datetime) -> str:
 
 
 def _as_datetime(value: str) -> datetime:
-    """Stored time -> Berlin datetime (an all-day date is its midnight)."""
+    """Stored time -> local datetime (an all-day date is its midnight)."""
     moment = real._parse(value)
     if isinstance(moment, datetime):
         return moment
@@ -91,7 +91,7 @@ def list_events(days_ahead: int = 1, date_from: str | None = None) -> dict:
     """List events on the user's Google Calendar.
     Use for 'what's on my calendar', 'am I free tomorrow', 'my schedule this week',
     and for past days like 'what did I have yesterday'.
-    `date_from` is a Berlin date 'YYYY-MM-DD' to start from (default: today);
+    `date_from` is a local date 'YYYY-MM-DD' to start from (default: today);
     use it for past days, e.g. date_from='2026-10-30', days_ahead=1 for that one day.
     `days_ahead` is 1-90: how many days to cover from date_from (1 = just that day)."""
     start = date.fromisoformat(date_from) if date_from else None
@@ -119,7 +119,7 @@ def get_event(event_id: str) -> dict:
 @real.google_tool
 def create_event(title: str, start: str, end: str, description: str = "") -> dict:
     """Create an event on the user's Google Calendar.
-    Times are local Berlin time WITHOUT offset or Z, e.g. '2026-10-29T12:00'.
+    Times are local time WITHOUT offset or Z, e.g. '2026-10-29T12:00'.
     Never convert to UTC. A plain date like '2026-10-29' makes an all-day event;
     for all-day events `end` is the day AFTER the last day."""
     start_at, end_at = real._parse(start), real._parse(end)

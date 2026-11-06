@@ -34,7 +34,19 @@ GMAIL_SCOPES = [
 ]
 SCOPES = CALENDAR_SCOPES + GMAIL_SCOPES  # what the login script asks for
 
-TZ_NAME = "Europe/Berlin"
+# The user's timezone (IANA name). Assist Voice passes its own setting on
+# (ASSIST_TIMEZONE, else the computer's timezone); run on its own, the same rule applies.
+def _zone_name() -> str:
+    name = os.getenv("ASSIST_TIMEZONE", "").strip()
+    if name:
+        return name
+    try:
+        from tzlocal import get_localzone_name
+        return get_localzone_name() or "Europe/Berlin"
+    except Exception:
+        return "Europe/Berlin"
+
+TZ_NAME = _zone_name()
 TZ = ZoneInfo(TZ_NAME)
 # Which calendar every event tool reads and writes. Default: the main one.
 # Set GOOGLE_CALENDAR_ID (Calendar settings -> Integrate calendar) to use another,
@@ -42,7 +54,7 @@ TZ = ZoneInfo(TZ_NAME)
 CALENDAR = os.getenv("GOOGLE_CALENDAR_ID", "").strip() or "primary"
 MAX_RESULTS = 25
 LOGIN_HINT = "Run `uv run python scripts/google_auth.py` to sign in to Google."
-TIME_FORMAT_HINT = "Use local Berlin time without offset, e.g. 2026-10-29T12:00"
+TIME_FORMAT_HINT = "Use local time without offset, e.g. 2026-10-29T12:00"
 
 mcp = FastMCP("google")
 
@@ -145,7 +157,7 @@ gmail_tool = _error_results("Gmail", DRAFT_NOT_FOUND, "Invalid email field")
 
 
 def _local(t: dict) -> str | None:
-    """Calendar time -> the format create_event accepts: '2026-10-29' or Berlin '2026-10-29T12:00'.
+    """Calendar time -> the format create_event accepts: '2026-10-29' or local '2026-10-29T12:00'.
 
     Results use the same format as inputs, so Gemini never sees an offset to
     copy, and undo can pass a deleted event's times straight to create_event.
@@ -171,7 +183,7 @@ def _compact(event: dict) -> dict:
 
 
 def _parse(value: str) -> date | datetime:
-    """'2026-10-29' -> date (all-day); '2026-10-29T12:00' -> datetime in Berlin.
+    """'2026-10-29' -> date (all-day); '2026-10-29T12:00' -> datetime in the user's timezone.
 
     Rejects offsets and 'Z': Gemini's own UTC conversions were wrong
     ('12 pm' became 13:00Z), so the server does all time zone handling.
@@ -217,7 +229,7 @@ def list_events(days_ahead: int = 1, date_from: str | None = None) -> dict:
     """List events on the user's Google Calendar.
     Use for 'what's on my calendar', 'am I free tomorrow', 'my schedule this week',
     and for past days like 'what did I have yesterday'.
-    `date_from` is a Berlin date 'YYYY-MM-DD' to start from (default: today);
+    `date_from` is a local date 'YYYY-MM-DD' to start from (default: today);
     use it for past days, e.g. date_from='2026-10-30', days_ahead=1 for that one day.
     `days_ahead` is 1-90: how many days to cover from date_from (1 = just that day)."""
     start = date.fromisoformat(date_from) if date_from else None
@@ -244,7 +256,7 @@ def get_event(event_id: str) -> dict:
 @google_tool
 def create_event(title: str, start: str, end: str, description: str = "") -> dict:
     """Create an event on the user's Google Calendar.
-    Times are local Berlin time WITHOUT offset or Z, e.g. '2026-10-29T12:00'.
+    Times are local time WITHOUT offset or Z, e.g. '2026-10-29T12:00'.
     Never convert to UTC. A plain date like '2026-10-29' makes an all-day event;
     for all-day events `end` is the day AFTER the last day."""
     start_at, end_at = _parse(start), _parse(end)
@@ -283,8 +295,8 @@ def _headers(message: dict) -> dict:
     return {h["name"].lower(): h["value"] for h in message.get("payload", {}).get("headers", [])}
 
 
-def _berlin(epoch_ms: str) -> str:
-    """Gmail's internalDate (ms since epoch) -> Berlin local '2026-10-29T12:00', like calendar times."""
+def _local(epoch_ms: str) -> str:
+    """Gmail's internalDate (ms since epoch) -> local '2026-10-29T12:00', like calendar times."""
     return datetime.fromtimestamp(int(epoch_ms) / 1000, TZ).strftime("%Y-%m-%dT%H:%M")
 
 
@@ -387,7 +399,7 @@ def search_emails(query: str, max_results: int = 10) -> dict:
             "thread_id": m["threadId"],
             "from": h.get("from", ""),
             "subject": h.get("subject", "(no subject)"),
-            "date": _berlin(m["internalDate"]),
+            "date": _local(m["internalDate"]),
             "snippet": html.unescape(m.get("snippet", "")),
         })
     return {"emails": emails}
@@ -406,7 +418,7 @@ def get_thread(thread_id: str) -> dict:
         item = {
             "id": m["id"],
             "from": h.get("from", ""),
-            "date": _berlin(m["internalDate"]),
+            "date": _local(m["internalDate"]),
             "body": _trim(_body(m.get("payload", {}))),
         }
         if "DRAFT" in m.get("labelIds", []):

@@ -16,7 +16,20 @@ from mcp.server.fastmcp import FastMCP
 # stdio servers get a stripped-down environment, so load .env explicitly
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-BERLIN = ZoneInfo("Europe/Berlin")
+# The user's timezone (IANA name). Assist Voice passes its own setting on
+# (ASSIST_TIMEZONE, else the computer's timezone); run on its own, the same rule applies.
+def _zone_name() -> str:
+    name = os.getenv("ASSIST_TIMEZONE", "").strip()
+    if name:
+        return name
+    try:
+        from tzlocal import get_localzone_name
+        return get_localzone_name() or "Europe/Berlin"
+    except Exception:
+        return "Europe/Berlin"
+
+
+TZ = ZoneInfo(_zone_name())
 MAX_DAYS = 14
 MAX_COMMITS = 100
 SEP = "\x1f"  # unit separator: can't appear in commit subjects
@@ -55,7 +68,7 @@ def _git_log(repo: Path, since: str, until: str) -> list[dict]:
         if len(parts) != 4:
             continue
         sha, ref, when, subject = parts
-        local = datetime.fromisoformat(when).astimezone(BERLIN)
+        local = datetime.fromisoformat(when).astimezone(TZ)
         commits.append({
             "repo": repo.name,
             "branch": ref.removeprefix("refs/heads/"),
@@ -68,7 +81,7 @@ def _git_log(repo: Path, since: str, until: str) -> list[dict]:
 
 @mcp.tool()
 def get_git_activity(date_from: str, date_to: str | None = None) -> dict:
-    """Commits by the user across local repos, Berlin-local dates, inclusive.
+    """Commits by the user across local repos, local dates, inclusive.
 
     date_from and date_to are YYYY-MM-DD. Omit date_to for a single day.
     Returns commits sorted by time, a count per repo, and per-repo errors.
@@ -87,9 +100,9 @@ def get_git_activity(date_from: str, date_to: str | None = None) -> dict:
     if not repos:
         return {"error": "STANDUP_REPOS is not set."}
 
-    # Explicit Berlin offsets so git doesn't depend on the machine's timezone
-    since = datetime.combine(start, time.min, BERLIN).isoformat()
-    until = datetime.combine(end + timedelta(days=1), time.min, BERLIN).isoformat()
+    # Explicit offsets so git doesn't depend on the machine's timezone
+    since = datetime.combine(start, time.min, TZ).isoformat()
+    until = datetime.combine(end + timedelta(days=1), time.min, TZ).isoformat()
 
     commits, errors = [], []
     for repo in repos:

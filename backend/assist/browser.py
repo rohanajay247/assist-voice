@@ -19,14 +19,12 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from fastapi import WebSocket, WebSocketDisconnect
 from langchain_core.tools import tool
 
 from backend.assist import clock, demo
 
-BERLIN = ZoneInfo("Europe/Berlin")
 DB_PATH = Path(__file__).parent / "tabs.db"  # *.db is gitignored; demo mode uses the demo DB
 TIMEOUT = 10  # seconds to wait for the extension
 NOT_CONNECTED = (
@@ -155,7 +153,7 @@ def init_db() -> None:
             "category TEXT NOT NULL, "  # read_later | todo | search | closed (kept so undo can reopen)
             "title TEXT NOT NULL, "
             "url TEXT NOT NULL, "
-            "saved_at TEXT NOT NULL, "  # Berlin time, ISO
+            "saved_at TEXT NOT NULL, "  # local time (clock.TZ), ISO
             "opened_at TEXT)"
         )
         # Day 6: a saved tab can be finished ("I applied to that job"), so lists don't go stale
@@ -292,7 +290,7 @@ async def search_saved_tabs(
     """Find tabs the user saved earlier with 'save my tabs' (saved, not open in the browser).
     `query`: words in the title or link, e.g. 'langgraph' ('' = all).
     `category`: 'read_later', 'todo', 'search' (web searches the user had open) or '' for all.
-    `day`: 'YYYY-MM-DD' (Berlin) to only show tabs saved that day, or ''.
+    `day`: 'YYYY-MM-DD' (local) to only show tabs saved that day, or ''.
     `max_age_days`: only tabs saved in the last N days (0 = any age).
     `include_done`: also show tabs the user marked as done."""
     sql, params = "SELECT * FROM saved_tabs WHERE category != 'closed'", []
@@ -309,7 +307,7 @@ async def search_saved_tabs(
         params.append(category)
     if day:
         try:
-            start = datetime.fromisoformat(day).replace(tzinfo=BERLIN)
+            start = datetime.fromisoformat(day).replace(tzinfo=clock.TZ)
         except ValueError:
             return json.dumps({"error": "day must look like 2026-11-02"})
         sql += " AND saved_at >= ? AND saved_at < ?"

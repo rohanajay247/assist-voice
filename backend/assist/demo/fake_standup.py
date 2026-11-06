@@ -12,7 +12,7 @@ mcp = FastMCP("standup")
 
 @mcp.tool()
 def get_git_activity(date_from: str, date_to: str | None = None) -> dict:
-    """Commits by the user across local repos, Berlin-local dates, inclusive.
+    """Commits by the user across local repos, local dates, inclusive.
 
     date_from and date_to are YYYY-MM-DD. Omit date_to for a single day.
     Returns commits sorted by time, a count per repo, and per-repo errors.
