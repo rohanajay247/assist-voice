@@ -18,15 +18,13 @@ winget install --id Cloudflare.cloudflared
 uv run python -c "import secrets; print(secrets.token_urlsafe(24))"
 ```
 
-3. Start the API and the UI (see the [quick start](../README.md#try-it-in-2-minutes-demo-mode)), then the tunnel:
+3. Start Assist Voice (click the shortcut), then the tunnel:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/tunnel.ps1
 ```
 
-```bash
-cloudflared tunnel --url http://localhost:5173
-```
+   It connects to the app on port 8000 (the shortcut), or to the dev server on 5173 if that's what runs. On macOS or Linux: `cloudflared tunnel --url http://127.0.0.1:8000`.
 
 4. Open the printed `https://….trycloudflare.com` URL on your phone. Enter the token on the lock screen, then choose "Add to Home Screen".
 

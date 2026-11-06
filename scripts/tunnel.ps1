@@ -1,6 +1,7 @@
-# Public HTTPS URL for the web app, so Assist works on your phone.
+﻿# Public HTTPS URL for the web app, so Assist Voice works on your phone.
 #
-# Start the backend and `npm run dev` (in web/) first, then:
+# Start Assist Voice first (the shortcut, on port 8000; or the dev setup with
+# `npm run dev` on 5173), then:
 #   powershell -ExecutionPolicy Bypass -File scripts/tunnel.ps1
 #
 # Uses a Cloudflare quick tunnel: no account needed, a new random
@@ -8,7 +9,16 @@
 # so set ASSIST_ACCESS_TOKEN in .env. Stop with Ctrl+C.
 
 $ErrorActionPreference = "Stop"
-$target = "http://localhost:5173"
+# The app started from the shortcut (8000) if it runs, else the dev server (5173)
+function Test-Listening($port) {
+    $null -ne (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+}
+if (Test-Listening 8000) { $target = "http://127.0.0.1:8000" }  # the launcher listens on 127.0.0.1 only
+elseif (Test-Listening 5173) { $target = "http://localhost:5173" }
+else {
+    Write-Host "Assist Voice isn't running. Start it first (click the Assist Voice shortcut), then run this again." -ForegroundColor Yellow
+    exit 1
+}
 
 if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
     Write-Host "cloudflared is not installed. Install it with:" -ForegroundColor Yellow

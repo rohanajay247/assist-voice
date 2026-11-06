@@ -48,19 +48,11 @@ It also remembers preferences ("sign my emails as Rohan"), reads replies aloud, 
 
 Assist Voice runs on your own computer, with your own free keys. Your data goes only to your machine and the services you connect.
 
-1. **Install** [Git](https://git-scm.com/), [uv](https://docs.astral.sh/uv/) and [Node](https://nodejs.org/) 22 or newer. uv brings Python 3.12 by itself.
-2. **Download** it:
-   ```bash
-   git clone https://github.com/rohanajay247/assist-voice.git
-   cd assist-voice
-   uv sync
-   cd web && npm install && cd ..
-   ```
-3. **Add your keys:** copy `.env.example` to `.env` and fill in a free [Gemini API key](https://aistudio.google.com/apikey) (required) and a free [Groq key](https://console.groq.com/keys) (for the mic; without it you type). Set `HOME_CITY` for the weather; the timezone comes from your computer (or set `ASSIST_TIMEZONE`).
-4. **Start it.** On Windows, `powershell -ExecutionPolicy Bypass -File scripts/install-shortcuts.ps1` gives you an **Assist Voice** shortcut that opens it in its own window. On Mac or Linux, run `cd web && npm run build && cd ..` once, then `uv run uvicorn backend.assist.api:app` and open http://localhost:8000.
-5. **Connect your accounts** (optional): Google Calendar, Gmail and GitHub.
+**On Windows it's one step:** download the ZIP (green **Code** button > **Download ZIP**), unzip it, and right-click `scripts/setup.ps1` > **Run with PowerShell**. Setup installs what's needed, asks for a free [Gemini key](https://aistudio.google.com/apikey) and your city, and puts an **Assist Voice** shortcut on your desktop. Click it to start; stop it from the icon next to the clock.
 
-The full guide, with the exact commands for each step: **[Set it up for your own use](docs/setup.md)**.
+Then add the features you want: calendar and email (connect Google, 15 minutes once), the tabs extension, your phone, tool-building. Mac and Linux take a few commands.
+
+**Step by step, with everything: [Set it up for your own use](docs/setup.md)**
 
 ## Documentation
 

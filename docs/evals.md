@@ -27,7 +27,7 @@ The first full run scored **30/39**. The failures were real bugs, all fixed sinc
 
 ## Run the evals
 
-Start the API in demo mode ([quick start](../README.md#try-it-in-2-minutes-demo-mode), step 3), then:
+Start the API in demo mode ([demo mode](setup.md#demo-mode-fake-data)), then:
 
 ```bash
 uv run python evals/run.py                  # all cases once
