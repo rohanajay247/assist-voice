@@ -1,4 +1,4 @@
-"""Google MCP server: the user's primary Google Calendar and Gmail.
+"""Google MCP server: the user's Google Calendar and Gmail.
 
 Sign-in is a one-time step: `uv run python scripts/google_auth.py`.
 This server only loads and refreshes that token; it never opens a browser.
@@ -7,6 +7,7 @@ Gmail is read + drafts only: there is deliberately no send tool.
 import base64
 import functools
 import html
+import os
 import re
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
@@ -35,7 +36,10 @@ SCOPES = CALENDAR_SCOPES + GMAIL_SCOPES  # what the login script asks for
 
 TZ_NAME = "Europe/Berlin"
 TZ = ZoneInfo(TZ_NAME)
-CALENDAR = "primary"
+# Which calendar every event tool reads and writes. Default: the main one.
+# Set GOOGLE_CALENDAR_ID (Calendar settings -> Integrate calendar) to use another,
+# e.g. a separate calendar for demos. Passed on by demo.servers().
+CALENDAR = os.getenv("GOOGLE_CALENDAR_ID", "").strip() or "primary"
 MAX_RESULTS = 25
 LOGIN_HINT = "Run `uv run python scripts/google_auth.py` to sign in to Google."
 TIME_FORMAT_HINT = "Use local Berlin time without offset, e.g. 2026-10-29T12:00"

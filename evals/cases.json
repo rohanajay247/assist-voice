@@ -41,7 +41,7 @@
 
   {"id": "mail-01", "cat": "email", "input": "What needs a reply from me?",
    "expect": {"tools_any": ["search_emails", "get_thread"], "pending": false,
-              "reply_re": ["(?i)anna"], "reply_not_re": ["(?i)black friday"]}},
+              "reply_re": ["(?i)anna", "(?i)wolff"], "reply_not_re": ["(?i)black friday"]}},
 
   {"id": "mail-02", "cat": "email", "input": "Summarise the thread with Anna",
    "expect": {"tools": ["get_thread"], "tools_any": ["search_emails"], "pending": false,
@@ -51,9 +51,9 @@
    "expect": {"tools": ["create_draft"], "args": {"create_draft": {"to": "anna", "body": "re:(?i)thursday"}},
               "pending": true, "resume": ["approve"], "state": {"drafts": 1}}},
 
-  {"id": "mail-04", "cat": "email", "input": "Draft an email to Prof. Sommer asking about the internship",
+  {"id": "mail-04", "cat": "email", "input": "Draft an email to Prof. Wolff asking about the internship",
    "expect": {"tools": ["create_draft"], "tools_any": ["search_emails", "get_thread"],
-              "args": {"create_draft": {"to": "sommer"}},
+              "args": {"create_draft": {"to": "wolff"}},
               "pending": true, "resume": ["deny"], "state": {"drafts": 0}}},
 
   {"id": "code-01", "cat": "code", "input": "Did my PR get reviewed?",
@@ -77,7 +77,7 @@
 
   {"id": "photo-01", "cat": "cross-app", "image": "fixtures/letter.jpg", "input": "What does this want?",
    "expect": {"tools_not": ["create_event", "create_draft"], "pending": false,
-              "reply_re": ["(?i)30\\.? ?nov|nov(ember)? 30|30/11", "(?i)renew|cancel"]}},
+              "reply_re": ["(?i)30\\.? ?nov|nov(ember)? 30|30/11|30\\.11\\.", "(?i)renew|cancel|verläng|kündig"]}},
 
   {"id": "undo-01", "cat": "undo", "after": "cal-04", "input": "Undo that",
    "expect": {"tools": ["undo_last_action"], "pending": false, "state": {"events": -1}}},
