@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { speakable } from "./speech";
 
 type Role = "user" | "assistant";
 
@@ -126,6 +127,9 @@ const TOKEN_EXPIRED = "Your access token stopped working. Enter it again.";
 
 // Shown when an approval answer got lost but the server had already handled it
 const ALREADY_HANDLED = "This was already handled.";
+// ?review in the URL: a transcript is typed into the input for a look before
+// sending, instead of being sent at once (used by the demo video recorder)
+const REVIEW_TRANSCRIPTS = new URLSearchParams(window.location.search).has("review");
 
 function tokenHeaders(token: string, init?: HeadersInit): Headers {
   const headers = new Headers(init);
@@ -136,19 +140,38 @@ function tokenHeaders(token: string, init?: HeadersInit): Headers {
 // Asks the backend whether this token is accepted. "offline" means the
 // server couldn't be reached (or isn't Assist), which is not a lock reason.
 // `demo`: the API runs on fake data (DEMO_MODE), shown as a header badge.
-async function checkToken(
-  token: string,
-): Promise<{ status: "ok" | "denied" | "offline"; demo: boolean }> {
+// `publicDemo`: the hosted demo for strangers (PUBLIC_DEMO): a banner, example
+// prompts, and voice recordings stop at the server's limit.
+interface AuthCheck {
+  status: "ok" | "denied" | "offline";
+  demo: boolean;
+  publicDemo?: { voiceSeconds: number };
+}
+
+async function checkToken(token: string): Promise<AuthCheck> {
   try {
     const res = await fetch("/auth/check", { headers: tokenHeaders(token) });
     if (res.status === 401) return { status: "denied", demo: false };
     if (!res.ok) return { status: "offline", demo: false };
-    const data: { demo?: boolean } = await res.json().catch(() => ({}));
-    return { status: "ok", demo: data.demo === true };
+    const data: {
+      demo?: boolean;
+      public?: boolean;
+      limits?: { voice_seconds?: number };
+    } = await res.json().catch(() => ({}));
+    return {
+      status: "ok",
+      demo: data.demo === true,
+      publicDemo: data.public
+        ? { voiceSeconds: data.limits?.voice_seconds ?? 30 }
+        : undefined,
+    };
   } catch {
     return { status: "offline", demo: false };
   }
 }
+
+// Public demo: always-visible requests to try (the start screen goes away)
+const DEMO_PROMPTS = ["Start my day", "What needs a reply?", "Save my tabs"];
 
 // Sends the saved access token. A 401 means it stopped working: forget it
 // and let the caller show the lock view.
@@ -165,11 +188,46 @@ async function apiFetch(path: string, init: RequestInit): Promise<Response> {
   return res;
 }
 
-const EXAMPLES = [
-  "What’s the weather tomorrow?",
-  "Note that I need milk",
-  "What notes do I have?",
+// The start screen: what Assist can do, each with a request to try.
+// "photo" opens the photo picker instead of sending text.
+type Capability = { icon: string; title: string; example: string; photo?: boolean };
+const CAPABILITIES: Capability[] = [
+  { icon: "sun", title: "Morning brief", example: "Start my day" },
+  { icon: "calendar", title: "Calendar", example: "What’s on tomorrow?" },
+  { icon: "mail", title: "Email", example: "What needs a reply from me?" },
+  { icon: "letter", title: "Letters & photos", example: "What does this letter want?", photo: true },
+  { icon: "code", title: "Coding day", example: "Where was I?" },
+  { icon: "tabs", title: "Browser tabs", example: "Save my tabs" },
 ];
+
+const ICONS: Record<string, string[]> = {
+  sun: ["M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"],
+  calendar: ["M4 6h16v14H4z", "M4 10h16M8 3v4M16 3v4"],
+  mail: ["M3 6h18v12H3z", "m3 7 9 6 9-6"],
+  letter: ["M6 3h9l3 3v15H6z", "M9 10h6M9 14h6M9 18h3"],
+  code: ["m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"],
+  tabs: ["M3 8h18v12H3z", "M3 8V5h6v3M9 5h6v3"],
+};
+
+function CapabilityIcon({ name }: { name: string }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {ICONS[name].map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
+  );
+}
 
 // "get_weather · Albstadt · days 2": tool name, then its arguments.
 // Strings read fine alone; other values get their key so "2" means something.
@@ -178,6 +236,149 @@ const EXAMPLES = [
 const LABEL_HIDDEN = new Set(["body", "reply_to_message_id"]);
 
 // Long values are cut to one short line; the chip's title has the full text.
+// "2026-11-06T12:00" -> "Fri 6 Nov, 12:00"; a plain date -> "Fri 6 Nov"
+function friendlyTime(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?/);
+  if (!m) return value;
+  const day = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const date = day.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+  return m[4] ? `${date.replace(",", "")}, ${m[4]}` : date.replace(",", "");
+}
+
+// The day before a plain "2026-12-01" date, in the same form
+function dayBefore(value: string): string {
+  const [y, m, d] = value.split("-").map(Number);
+  const day = new Date(y, m - 1, d - 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+}
+
+// A time range on one day: "Fri 6 Nov, 12:00–13:00"; all-day: "Mon 30 Nov (all day)"
+function friendlyRange(start: unknown, end: unknown): string {
+  const plainDate = (v: unknown): v is string =>
+    typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  // All-day events end the next day (Google's end date is exclusive)
+  if (plainDate(start) && plainDate(end) && end > start) {
+    const last = dayBefore(end);
+    return last === start
+      ? `${friendlyTime(start)} (all day)`
+      : `${friendlyTime(start)} – ${friendlyTime(last)}`;
+  }
+  const a = friendlyTime(start);
+  const b = friendlyTime(end);
+  if (!b || a === b) return a; // all-day on one day
+  const [aDay, aTime] = a.split(", ");
+  const [bDay, bTime] = b.split(", ");
+  return aDay === bDay && aTime && bTime ? `${aDay}, ${aTime}–${bTime}` : `${a} – ${b}`;
+}
+
+const count = (n: unknown, word: string) =>
+  Array.isArray(n) ? `${n.length} ${word}${n.length === 1 ? "" : "s"}` : "";
+
+// Plain-language label for the tools people see most; raw args stay in the tooltip
+function friendlyToolCall({ name, args }: ToolCall): string | null {
+  const a = args as Record<string, unknown>;
+  const s = (k: string) => (typeof a[k] === "string" ? (a[k] as string) : "");
+  const short = (t: string, n = 48) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
+  const join = (...parts: string[]) => parts.filter(Boolean).join(" · ");
+  switch (name) {
+    case "create_event":
+      return join("Add event", friendlyRange(a.start, a.end), short(s("title")));
+    case "delete_event":
+      return "Delete event";
+    case "list_events":
+      return join("Check calendar", s("date_from") ? friendlyTime(a.date_from) : "");
+    case "search_events":
+      return join("Search calendar", short(s("query")));
+    case "search_emails":
+      return join("Search email", short(s("query")));
+    case "get_thread":
+      return "Read email";
+    case "create_draft":
+      return join("Draft email", s("to") ? `to ${short(s("to"), 32)}` : "", short(s("subject")));
+    case "delete_draft":
+      return "Delete draft";
+    case "add_note":
+      return join("Save note", short(s("text")));
+    case "search_notes":
+      return join("Search notes", short(s("query")));
+    case "list_notes":
+      return "Read notes";
+    case "delete_note":
+      return "Delete note";
+    case "remember":
+      return join("Remember", short(s("text")));
+    case "forget_memory":
+      return "Forget a preference";
+    case "list_memories":
+      return "Read preferences";
+    case "get_weather":
+      return join("Weather", s("city"));
+    case "list_open_tabs":
+      return "Read open tabs";
+    case "save_tabs":
+      return join(
+        "Save tabs",
+        Array.isArray(a.read_later) ? `${a.read_later.length} to read later` : "",
+        count(a.todo, "to-do"),
+        Array.isArray(a.keep_open) && a.keep_open.length ? count(a.keep_open, "kept open") : "",
+      );
+    case "search_saved_tabs":
+      return join("Search saved tabs", short(s("query")));
+    case "open_saved_tabs":
+      return join("Reopen tabs", count(a.ids, "tab"));
+    case "mark_tabs_done":
+      return join("Mark done", count(a.ids, "tab"));
+    case "forget_saved_tabs":
+      return "Forget saved tabs";
+    case "undo_last_action":
+      return "Undo last change";
+    case "start_my_day":
+      return "Morning brief";
+    case "wrap_up":
+      return "Wrap up the day";
+    case "where_was_i":
+      return "Where was I";
+    case "weekly_receipt":
+      return "Weekly receipt";
+    case "get_git_activity":
+      return "Read git activity";
+    case "build_tool":
+      return join("Build tool", short(s("name")));
+    case "install_tool":
+      return "Install tool";
+    case "remove_tool":
+      return join("Remove tool", short(s("name")));
+    case "list_built_tools":
+      return "List built tools";
+    case "get_job_logs":
+      return "Read CI logs";
+    case "actions_list":
+    case "actions_get":
+      return "Read CI runs";
+    case "list_pull_requests":
+    case "search_pull_requests":
+      return "Read pull requests";
+    case "pull_request_read":
+      return join("Read pull request", a.pullNumber ? `#${a.pullNumber}` : "");
+    case "list_commits":
+    case "get_commit":
+      return "Read commits";
+    default:
+      return null;
+  }
+}
+
+// What a chip shows: the friendly label when known, otherwise the raw call
+function toolLabel(tc: ToolCall): string {
+  return friendlyToolCall(tc) ?? formatToolCall(tc);
+}
+
 function formatToolCall({ name, args }: ToolCall, maxValue = 48): string {
   const clip = (s: string) => {
     const line = s.replace(/\s+/g, " ").trim();
@@ -372,9 +573,14 @@ function guessLang(text: string): string {
   return de > en ? "de-DE" : "en-US"; // a tie stays English
 }
 
-// Prefer the neural voices browsers ship: Edge "… Online (Natural)", Chrome "Google …"
+// Prefer British English (Assist's voice: Chrome's "Google UK English …", Edge's
+// en-GB Natural ones), then the neural voices browsers ship. The saved choice is
+// per address, so a new one (the launcher's :8000) starts here.
 function voiceScore(v: SpeechSynthesisVoice): number {
   return (
+    (v.lang.toLowerCase().replace("_", "-") === "en-gb" ? 8 : 0) +
+    // ...and a female one: Chrome's "Google UK English Female", Edge's Sonia/Libby/Maisie, Windows' Hazel
+    (/female|sonia|libby|maisie|hazel/i.test(v.name) ? 1 : 0) +
     (/natural/i.test(v.name) ? 4 : 0) +
     (/online|google/i.test(v.name) ? 2 : 0) +
     (v.default ? 1 : 0)
@@ -413,8 +619,8 @@ function stripMarkdown(text: string): string {
 function speak(text: string, voiceURI = "") {
   if (!("speechSynthesis" in window) || !text.trim()) return;
   window.speechSynthesis.cancel(); // never queue up behind an old reply
-  // Lists read better without their dashes
-  const spoken = stripMarkdown(text).replace(/^\s*[-*•]\s+/gm, "");
+  // Lists read better without their dashes; times and dates as people say them
+  const spoken = speakable(stripMarkdown(text).replace(/^\s*[-*•]\s+/gm, ""));
   const utterance = new SpeechSynthesisUtterance(spoken);
   const lang = guessLang(text);
   const voice = pickVoice(lang, voiceURI);
@@ -461,12 +667,14 @@ function extensionFor(mimeType: string): string {
   return "webm";
 }
 
-async function transcribe(audio: Blob): Promise<string> {
+// `notice`: the public demo's friendly answer when a limit was hit (no text then)
+async function transcribe(
+  audio: Blob,
+): Promise<{ text: string; notice?: string | null }> {
   const form = new FormData();
   form.append("audio", audio, `speech.${extensionFor(audio.type)}`);
   const res = await apiFetch("/transcribe", { method: "POST", body: form });
-  const data: { text: string } = await res.json();
-  return data.text;
+  return res.json();
 }
 
 function micError(e: unknown): string {
@@ -478,6 +686,51 @@ function micError(e: unknown): string {
 }
 
 // Same mark as public/favicon.svg, drawn on a 16px grid so the bars stay crisp
+// Live level bars from the microphone while it listens
+function Waveform({ analyser }: { analyser: AnalyserNode }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const samples = new Uint8Array(analyser.fftSize);
+    const bars = 28;
+    const levels: number[] = Array(bars).fill(0);
+    const color = getComputedStyle(canvas).color;
+    let frame = 0;
+    let tick = 0;
+    const draw = () => {
+      frame = requestAnimationFrame(draw);
+      analyser.getByteTimeDomainData(samples);
+      let peak = 0;
+      for (const v of samples) peak = Math.max(peak, Math.abs(v - 128) / 128);
+      if (tick++ % 3 === 0) {
+        levels.shift(); // scrolls left, newest level on the right
+        levels.push(Math.min(1, peak * 2.2));
+      }
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = color;
+      const step = width / bars;
+      levels.forEach((level, i) => {
+        const h = Math.max(2 * devicePixelRatio, level * height);
+        ctx.fillRect(i * step + step * 0.25, (height - h) / 2, step * 0.5, h);
+      });
+    };
+    draw();
+    return () => cancelAnimationFrame(frame);
+  }, [analyser]);
+  return (
+    <canvas
+      ref={canvasRef}
+      className="waveform"
+      width={112 * devicePixelRatio}
+      height={24 * devicePixelRatio}
+      aria-hidden="true"
+    />
+  );
+}
+
 function LogoMark({ size = 20 }: { size?: number }) {
   return (
     <svg
@@ -528,7 +781,7 @@ function LockView({
     <div className="lock">
       <form className="lock-card" onSubmit={submit}>
         <LogoMark size={40} />
-        <h1>Assist</h1>
+        <h1>Assist Voice</h1>
         <p className="lock-hint">Enter your access token to continue.</p>
         <input
           className="lock-input"
@@ -849,6 +1102,7 @@ export default function App() {
   // "checking" until /auth/check answers; "locked" shows the lock view
   const [auth, setAuth] = useState<"checking" | "locked" | "open">("checking");
   const [demoMode, setDemoMode] = useState(false); // API runs on fake data
+  const [publicDemo, setPublicDemo] = useState<AuthCheck["publicDemo"]>();
   const [lockMessage, setLockMessage] = useState<string | null>(null);
   const [muted, setMuted] = useState(() => loadPref(MUTE_KEY) === "1");
   const [voiceURI, setVoiceURI] = useState(() => loadPref(VOICE_KEY) ?? "");
@@ -861,6 +1115,7 @@ export default function App() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const holdingRef = useRef(false); // mic button still held down
   const startedAtRef = useRef(0);
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -869,13 +1124,14 @@ export default function App() {
   // On open: is the saved token (or no token) accepted?
   useEffect(() => {
     const saved = loadToken();
-    checkToken(saved).then(({ status, demo }) => {
+    checkToken(saved).then(({ status, demo, publicDemo }) => {
       if (status === "denied") {
         saveToken("");
         setLockMessage(saved ? TOKEN_EXPIRED : null);
         setAuth("locked");
       } else {
         setDemoMode(demo);
+        setPublicDemo(publicDemo);
         setAuth("open"); // "offline" too: sending then shows the usual error
       }
     });
@@ -942,7 +1198,7 @@ export default function App() {
     } catch (e) {
       if (e instanceof UnauthorizedError) lock(TOKEN_EXPIRED);
       else if (!(recover && (await recover())))
-        setError("Couldn’t reach Assist. Try again.");
+        setError("Couldn’t reach Assist Voice. Try again.");
     } finally {
       setPending(false);
       inputRef.current?.focus();
@@ -1045,9 +1301,9 @@ export default function App() {
 
   // A recording finishes in callbacks created on an earlier render, so they
   // reach the current state and handlers through this ref.
-  const latest = useRef({ approval, muted, voiceURI, send, decide });
+  const latest = useRef({ approval, muted, voiceURI, send, decide, publicDemo });
   useEffect(() => {
-    latest.current = { approval, muted, voiceURI, send, decide };
+    latest.current = { approval, muted, voiceURI, send, decide, publicDemo };
   });
 
   function toggleMuted() {
@@ -1064,7 +1320,7 @@ export default function App() {
     if (muted) return;
     const voice = voices.find((v) => v.voiceURI === uri);
     const german = voice?.lang.toLowerCase().startsWith("de");
-    speak(german ? "Hallo, ich bin Assist." : "Hi, I'm Assist.", uri);
+    speak(german ? "Hallo, ich bin Assist Voice." : "Hi, I'm Assist Voice.", uri);
   }
 
   // Hold to talk: press starts recording, release stops it and transcribes
@@ -1102,8 +1358,28 @@ export default function App() {
     recorder.onstart = (e) => {
       startedAtRef.current = e.timeStamp;
     };
+    // Public demo: stop at the server's voice limit, as if the button was released
+    const limit = latest.current.publicDemo?.voiceSeconds;
+    if (limit) {
+      setTimeout(() => {
+        if (recorderRef.current === recorder) stopRecording();
+      }, limit * 1000);
+    }
+    // Level bars while listening (a nicety: recording works without it)
+    let audio: AudioContext | null = null;
+    try {
+      audio = new AudioContext();
+      const node = audio.createAnalyser();
+      node.fftSize = 1024;
+      audio.createMediaStreamSource(stream).connect(node);
+      setAnalyser(node);
+    } catch {
+      audio = null;
+    }
     recorder.onstop = (e) => {
       stream.getTracks().forEach((t) => t.stop()); // turn off the mic indicator
+      setAnalyser(null);
+      audio?.close().catch(() => {});
       const duration = e.timeStamp - startedAtRef.current;
       const blob = new Blob(chunks, {
         type: recorder.mimeType || "audio/webm",
@@ -1129,7 +1405,14 @@ export default function App() {
     setVoice("transcribing");
     let text: string;
     try {
-      text = (await transcribe(blob)).trim();
+      const result = await transcribe(blob);
+      if (result.notice) {
+        // A demo limit: answered like a reply, not shown as an error
+        setVoice("idle");
+        show({ reply: result.notice, tool_calls: [], steps: [] });
+        return;
+      }
+      text = result.text.trim();
     } catch (e) {
       setVoice("idle");
       if (e instanceof UnauthorizedError) lock(TOKEN_EXPIRED);
@@ -1150,17 +1433,28 @@ export default function App() {
       else setError("Say yes or no");
       return;
     }
+    if (REVIEW_TRANSCRIPTS) {
+      // Shown word by word, as it was heard; the user (or recorder) presses Send
+      const words = text.split(/\s+/);
+      for (let i = 1; i <= words.length; i++) {
+        setInput(words.slice(0, i).join(" "));
+        await new Promise((r) => setTimeout(r, 110 + Math.random() * 40));
+      }
+      inputRef.current?.focus();
+      return;
+    }
     send(text);
   }
 
   // Returns an error message for the lock view, or null once unlocked
   async function unlock(token: string): Promise<string | null> {
-    const { status, demo } = await checkToken(token);
+    const { status, demo, publicDemo } = await checkToken(token);
     if (status === "denied")
       return "That token didn’t work. Check it and try again.";
     if (status === "offline")
-      return "Couldn’t reach Assist. Is the server running?";
+      return "Couldn’t reach Assist Voice. Is the server running?";
     setDemoMode(demo);
+    setPublicDemo(publicDemo);
     saveToken(token);
     setLockMessage(null);
     setAuth("open");
@@ -1175,18 +1469,20 @@ export default function App() {
   const holdKey = (key: string) => key === " " || key === "Enter";
   const placeholder =
     voice === "recording" || voice === "starting"
-      ? "Listening…"
+      ? analyser
+        ? "" // "Listening…" sits next to the level bars
+        : "Listening…"
       : voice === "transcribing"
         ? "Transcribing…"
         : approval
           ? "Approve or deny first"
-          : "Message Assist";
+          : "Message Assist Voice";
 
   return (
     <div className="app">
       <header className="column header">
         <LogoMark />
-        <span>Assist</span>
+        <span>Assist Voice</span>
         {demoMode && (
           <span
             className="demo-badge"
@@ -1235,6 +1531,25 @@ export default function App() {
         </div>
       </header>
 
+      {publicDemo && (
+        <div className="column demo-banner" role="note">
+          <span>Live demo with fake data. Your changes reset after an hour.</span>
+          <span className="demo-prompts">
+            {DEMO_PROMPTS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="demo-prompt"
+                disabled={pending || !!approval || voice !== "idle"}
+                onClick={() => send(p)}
+              >
+                {p}
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
+
       <main className="scroll">
         <div
           className={`column thread${empty ? " is-empty" : ""}`}
@@ -1242,15 +1557,33 @@ export default function App() {
         >
           {empty && (
             <div className="empty">
-              <h1>What can I do for you?</h1>
-              <p>Ask about your notes or the weather.</p>
-              <div className="examples">
-                {EXAMPLES.map((ex) => (
-                  <button key={ex} className="example" onClick={() => send(ex)}>
-                    {ex}
+              <h1>Say what you need.</h1>
+              <p>
+                Hold the mic and talk. Assist Voice works across your calendar, email,
+                code and tabs, and asks before it changes anything.
+              </p>
+              <div className="capabilities">
+                {CAPABILITIES.map((c) => (
+                  <button
+                    key={c.title}
+                    type="button"
+                    className="capability"
+                    onClick={() =>
+                      c.photo ? fileRef.current?.click() : send(c.example)
+                    }
+                  >
+                    <span className="capability-title">
+                      <CapabilityIcon name={c.icon} />
+                      {c.title}
+                    </span>
+                    <span className="capability-example">“{c.example}”</span>
                   </button>
                 ))}
               </div>
+              <p className="trust">
+                Every change waits for your OK · Anything can be undone · Emails
+                are drafted, never sent
+              </p>
             </div>
           )}
 
@@ -1277,7 +1610,7 @@ export default function App() {
                         className="tool"
                         title={formatToolCall(tc, 2000)}
                       >
-                        {formatToolCall(tc)}
+                        {toolLabel(tc)}
                       </span>
                     ))}
                   </div>
@@ -1298,7 +1631,7 @@ export default function App() {
                 ) : (
                   <div key={j} className="tools">
                     <span className="tool" title={formatToolCall(tc, 2000)}>
-                      {formatToolCall(tc)}
+                      {toolLabel(tc)}
                     </span>
                   </div>
                 ),
@@ -1373,6 +1706,12 @@ export default function App() {
             disabled={!!approval}
             autoFocus
           />
+          {voice === "recording" && analyser && (
+            <>
+              <span className="listening">Listening…</span>
+              <Waveform analyser={analyser} />
+            </>
+          )}
           <button
             type="button"
             className="icon-btn camera"

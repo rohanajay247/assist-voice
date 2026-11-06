@@ -8,6 +8,7 @@ Day 2:
   calls /approve, which resumes the same thread with Command(resume=...).
 - Voice. /transcribe turns a push-to-talk recording into text with Groq Whisper.
 """
+import asyncio
 import base64
 import binascii
 import json
@@ -15,22 +16,25 @@ import os
 import re
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 import httpx
 import litellm
 from dotenv import load_dotenv
 from fastapi import (
-    Depends, FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketException,
+    Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketException,
 )
 from starlette.requests import HTTPConnection
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 from pydantic import BaseModel
 
 from backend.assist import browser, demo
+from backend.assist.demo import public
 from backend.assist.graph.agent import DENIED, UNDOABLE, build_graph, needs_approval
 from backend.assist.toolbuilder import registry
 
@@ -56,8 +60,10 @@ def require_token(conn: HTTPConnection) -> None:
 
     The browser extension's WebSocket can't set headers, so ?token= works too.
     """
-    if not ACCESS_TOKEN:
+    if not ACCESS_TOKEN or demo.PUBLIC_DEMO:  # public demo: open to visitors, sandboxed
         return
+    if conn.scope.get("endpoint") is web_app:
+        return  # the app's own files: the lock screen asks for the token inside
     given = conn.headers.get("x-assist-token") or conn.query_params.get("token", "")
     # Constant-time compare, so response timing doesn't leak the token
     if not secrets.compare_digest(given.encode(), ACCESS_TOKEN.encode()):
@@ -71,6 +77,16 @@ async def lifespan(app: FastAPI):
     # Built once at startup. The checkpointer lives inside the compiled graph,
     # so it lives as long as the server process (RAM only, wiped by --reload).
     global graph
+    if demo.PUBLIC_DEMO:
+        # A sandbox per visitor, fake servers in-process (see demo/public.py)
+        from backend.assist.graph import agent
+        public.install(agent, delete_thread=lambda t: graph.checkpointer.adelete_thread(t))
+        graph = await build_graph()
+        sweeper = asyncio.create_task(public.sweep_forever())
+        yield
+        sweeper.cancel()
+        await public.shutdown()
+        return
     if demo.DEMO_MODE:  # every start is a clean demo
         from backend.assist.demo import store
         store.reset()
@@ -79,6 +95,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, dependencies=[Depends(require_token)])
+if demo.PUBLIC_DEMO:
+    app.add_middleware(public.CookieMiddleware)  # a sandbox cookie for every visitor
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -120,6 +138,7 @@ class ChatResponse(BaseModel):
 
 class TranscribeResponse(BaseModel):
     text: str
+    notice: str | None = None  # public demo: a limit was hit; the UI shows this instead
 
 
 def make_config(thread_id: str) -> dict:
@@ -228,13 +247,19 @@ async def auth_check() -> dict:
     # The app-wide require_token dependency does the work: reaching this
     # line means the token is valid (or none is configured).
     # `demo` tells the UI to show its "Demo mode" badge.
+    # `public`: the hosted demo for strangers (banner, example prompts, voice limit)
+    if demo.PUBLIC_DEMO:
+        return {"ok": True, "demo": True, "public": True,
+                "limits": {"messages": public.SESSION_MESSAGES, "photos": public.SESSION_PHOTOS,
+                           "voice_seconds": public.MAX_VOICE_SECONDS,
+                           "session_minutes": public.SESSION_MINUTES}}
     return {"ok": True, "demo": demo.DEMO_MODE}
 
 
-if demo.DEMO_MODE:
+if demo.DEMO_MODE and not demo.PUBLIC_DEMO:
     from backend.assist.demo import store
 
-    # Only exist in demo mode; behind the same token check as everything else
+    # Only exist in (non-public) demo mode, for the evals; behind the token check
 
     @app.post("/demo/reset")
     async def demo_reset() -> dict:
@@ -249,8 +274,9 @@ if demo.DEMO_MODE:
         return store.state()
 
 
-def check_image(image: str) -> None:
-    """Accept only a JPEG/PNG data URL with valid base64, up to MAX_IMAGE_BYTES."""
+def check_image(image: str) -> int:
+    """Accept only a JPEG/PNG data URL with valid base64, up to MAX_IMAGE_BYTES
+    (public demo: its own limit, checked by the caller). Returns the size in bytes."""
     match = IMAGE_DATA_URL.match(image)
     if not match:
         raise HTTPException(400, "Image must be a JPEG or PNG data URL")
@@ -258,8 +284,9 @@ def check_image(image: str) -> None:
         data = base64.b64decode(match.group(2), validate=True)
     except (binascii.Error, ValueError):
         raise HTTPException(400, "Image data is not valid base64")
-    if len(data) > MAX_IMAGE_BYTES:
+    if len(data) > MAX_IMAGE_BYTES and not demo.PUBLIC_DEMO:
         raise HTTPException(413, "Image is larger than 4 MB")
+    return len(data)
 
 
 async def rebuild_if_tools_changed() -> None:
@@ -329,8 +356,32 @@ async def run_graph(payload, thread_id: str) -> ChatResponse:
     return to_response(result)
 
 
+def notice(text: str) -> ChatResponse:
+    """A limit or problem answered as a normal reply (public demo)."""
+    return ChatResponse(reply=text, tool_calls=[])
+
+
+def demo_problem(req: ChatRequest) -> str | None:
+    """Public demo: a friendly reply if this message can't be sent as it is, else None."""
+    if len(req.message) > public.MAX_CHARS:
+        return public.TOO_LONG
+    if req.image and check_image(req.image) > public.MAX_PHOTO_BYTES:
+        return public.PHOTO_TOO_BIG
+    return None
+
+
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest, request: Request) -> ChatResponse:
+    # Public demo: runs in the visitor's sandbox, under their own thread key
+    async with public.visit(request) as visit:
+        if demo.PUBLIC_DEMO:
+            problem = demo_problem(req) or visit.message_limit(photo=bool(req.image))
+            if problem:
+                return notice(problem)
+        return await _chat(req, visit.thread(req.thread_id))
+
+
+async def _chat(req: ChatRequest, thread_id: str) -> ChatResponse:
     # Send only the new message; add_messages appends it to the saved history.
     if req.image:
         check_image(req.image)
@@ -342,7 +393,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         ])
     else:
         message = HumanMessage(req.message)
-    return await run_graph({"messages": [message]}, req.thread_id)
+    return await run_graph({"messages": [message]}, thread_id)
 
 
 async def waiting_approval(thread_id: str) -> list:
@@ -352,22 +403,31 @@ async def waiting_approval(thread_id: str) -> list:
 
 
 @app.post("/approve", response_model=ChatResponse)
-async def approve(req: ApproveRequest) -> ChatResponse:
+async def approve(req: ApproveRequest, request: Request) -> ChatResponse:
     # Resume the paused graph. interrupt() inside the approval node
     # returns this value, and the graph continues from there.
     # Only while it's really paused: a stale or second click (e.g. Deny after the
     # Approve already went through) must not resume anything.
-    if not await waiting_approval(req.thread_id):
-        raise HTTPException(409, "Nothing is waiting for approval")
-    decision = "approve" if req.approved else "deny"
-    return await run_graph(Command(resume=decision), req.thread_id)
+    # Public demo: the thread key includes the visitor's session, so another
+    # visitor's thread id finds nothing waiting.
+    async with public.visit(request) as visit:
+        thread_id = visit.thread(req.thread_id)
+        if not await waiting_approval(thread_id):
+            raise HTTPException(409, "Nothing is waiting for approval")
+        decision = "approve" if req.approved else "deny"
+        return await run_graph(Command(resume=decision), thread_id)
 
 
 @app.get("/threads/{thread_id}", response_model=ChatResponse)
-async def thread_state(thread_id: str) -> ChatResponse:
+async def thread_state(thread_id: str, request: Request) -> ChatResponse:
     """The latest turn of a thread as the server has it: pending approval,
     tool calls, steps and the last reply. The UI reloads this when an
     /approve answer got lost, instead of trusting its own buttons."""
+    async with public.visit(request) as visit:  # public demo: this visitor's threads only
+        return await _thread_state(visit.thread(thread_id))
+
+
+async def _thread_state(thread_id: str) -> ChatResponse:
     snapshot = await graph.aget_state(make_config(thread_id))
     messages = snapshot.values.get("messages", [])
     if not any(isinstance(m, HumanMessage) for m in messages):
@@ -380,10 +440,11 @@ async def thread_state(thread_id: str) -> ChatResponse:
     # The turn ended without a reply (e.g. the model failed after a tool ran)
     return to_response({"messages": [*messages, AIMessage("")]})
 
-@app.websocket("/ext/ws")
-async def extension_socket(ws: WebSocket) -> None:
-    # The Save-my-tabs extension stays connected here; tab tools send it commands
-    await browser.serve(ws)
+if not demo.PUBLIC_DEMO:  # public demo: fake tabs only, no extension socket (404)
+    @app.websocket("/ext/ws")
+    async def extension_socket(ws: WebSocket) -> None:
+        # The Save-my-tabs extension stays connected here; tab tools send it commands
+        await browser.serve(ws)
 
 
 @app.get("/ext/status")
@@ -392,14 +453,34 @@ async def extension_status() -> dict:
 
 
 @app.post("/transcribe", response_model=TranscribeResponse)
-async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
+async def transcribe(request: Request, audio: UploadFile = File(...)) -> TranscribeResponse:
     # One push-to-talk recording (webm/ogg from MediaRecorder) -> text.
     # No language is sent, so Whisper auto-detects English or German.
     data = await audio.read()
     if not data:
         raise HTTPException(400, "Empty audio")
-    if len(data) > MAX_AUDIO_BYTES:
-        raise HTTPException(413, "Audio is larger than 25 MB")
+    if not demo.PUBLIC_DEMO:
+        if len(data) > MAX_AUDIO_BYTES:
+            raise HTTPException(413, "Audio is larger than 25 MB")
+        text, _ = await whisper(audio, data)
+        return TranscribeResponse(text=text)
+
+    # Public demo: within the visitor's limits, size first (no Whisper call for
+    # a long upload), then Whisper's own measured duration
+    async with public.visit(request) as visit:
+        problem = visit.voice_limit()
+        if problem:
+            return TranscribeResponse(text="", notice=problem)
+        if len(data) > public.MAX_AUDIO_BYTES:
+            return TranscribeResponse(text="", notice=public.VOICE_TOO_LONG)
+        text, seconds = await whisper(audio, data)
+        if seconds > public.MAX_VOICE_SECONDS + 1:  # +1: recorders overshoot a little
+            return TranscribeResponse(text="", notice=public.VOICE_TOO_LONG)
+        return TranscribeResponse(text=text)
+
+
+async def whisper(audio: UploadFile, data: bytes) -> tuple[str, float]:
+    """Groq Whisper: the text and the recording's length in seconds."""
 
     key = os.getenv("GROQ_API_KEY")
     if not key:
@@ -413,7 +494,7 @@ async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
                 GROQ_STT_URL,
                 headers={"Authorization": f"Bearer {key}"},
                 files={"file": (filename, data, audio.content_type or "audio/webm")},
-                data={"model": STT_MODEL, "response_format": "json"},
+                data={"model": STT_MODEL, "response_format": "verbose_json"},
             )
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Could not reach Groq: {e.__class__.__name__}")
@@ -427,4 +508,28 @@ async def transcribe(audio: UploadFile = File(...)) -> TranscribeResponse:
         status = 422 if res.status_code == 400 else 502
         raise HTTPException(status, f"Groq error {res.status_code}: {detail}")
 
-    return TranscribeResponse(text=res.json().get("text", "").strip())
+    body = res.json()  # verbose_json: also the duration, for the public demo's voice limit
+    return body.get("text", "").strip(), float(body.get("duration") or 0)
+
+
+# ---------- The built PWA (one process for daily use) ----------
+# `npm run build` writes web/dist; when it exists the API serves it at /, so
+# http://localhost:8000 is the whole app. `npm run dev` (Vite on :5173 with its
+# proxy) keeps working as before. Registered last: every API route wins.
+WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
+# Unknown paths under these are API misses (404), never the app's index.html
+API_PREFIXES = ("auth", "chat", "approve", "threads", "transcribe", "ext", "demo",
+                "docs", "redoc", "openapi.json")
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def web_app(path: str):
+    if path.split("/", 1)[0] in API_PREFIXES or not (WEB_DIST / "index.html").is_file():
+        raise HTTPException(404, "Not Found")
+    file = (WEB_DIST / path).resolve()
+    # Only real files inside web/dist; anything else is a client-side route (SPA fallback)
+    if path and file.is_file() and file.is_relative_to(WEB_DIST):
+        # Hashed assets never change; the service worker and index must always be fresh
+        cache = "public, max-age=31536000, immutable" if path.startswith("assets/") else "no-cache"
+        return FileResponse(file, headers={"Cache-Control": cache})
+    return FileResponse(WEB_DIST / "index.html", headers={"Cache-Control": "no-cache"})

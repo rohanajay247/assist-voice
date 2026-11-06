@@ -1,4 +1,4 @@
-# Assist
+# Assist Voice
 
 A voice assistant that works across your calendar, email, notes, GitHub and browser tabs, and asks before it changes anything.
 
@@ -100,12 +100,14 @@ Leave `DEMO_MODE` and `ASSIST_NOW` empty. Each integration is optional: tools wi
 | `TOOLBUILDER_ENABLED` | Optional | `false` hides tool-building. Default: on |
 | `DEMO_MODE` | Demo only | `true` for fake data |
 | `ASSIST_NOW` | Demo and evals | Fixed Berlin time, e.g. `2026-11-04T09:00` |
+| `PUBLIC_DEMO` | Hosted demo only | `true` for the public demo: a sandbox per visitor, limits (see [Public demo](#public-demo)) |
+| `GOOGLE_CALENDAR_ID` | Optional | Calendar the event tools use. Default: your main calendar (`primary`). For another one: Google Calendar > Settings > the calendar > **Integrate calendar** > Calendar ID |
 
-**GitHub token.** Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new). Pick the repos, then set these repository permissions to **Read-only**: Contents, Issues, Pull requests, Actions (Metadata is read-only by default). Assist also sends GitHub's `X-MCP-Readonly` header and refuses to start if the server offers a tool that looks like a write.
+**GitHub token.** Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new). Pick the repos, then set these repository permissions to **Read-only**: Contents, Issues, Pull requests, Actions (Metadata is read-only by default). Assist Voice also sends GitHub's `X-MCP-Readonly` header and refuses to start if the server offers a tool that looks like a write.
 
 ### Google Calendar and Gmail
 
-Assist signs in with your own Google Cloud OAuth client, so your data goes only to your project.
+Assist Voice signs in with your own Google Cloud OAuth client, so your data goes only to your project.
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/) and create a new project.
 2. Under **APIs & Services > Library**, enable **Google Calendar API** and **Gmail API**.
@@ -127,7 +129,29 @@ The server refreshes the token by itself. In Testing mode Google expires it afte
 
 - `calendar.events`: read, create and delete events. No calendar settings or sharing.
 - `gmail.readonly`: search and read mail.
-- `gmail.compose`: create and delete drafts. The scope would also allow sending, but Assist has no send tool. Drafts wait in Gmail for you to send.
+- `gmail.compose`: create and delete drafts. The scope would also allow sending, but Assist Voice has no send tool. Drafts wait in Gmail for you to send.
+
+### Use it every day (Windows)
+
+One click starts Assist Voice in its own window, without terminals. The API serves the built web app, so it all runs as one process on http://localhost:8000.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install-shortcuts.ps1
+```
+
+This puts three shortcuts on your desktop and in the Start menu (search "Assist Voice", then right-click > **Pin to taskbar**):
+
+- **Assist Voice**: starts the API on your real accounts (hidden, no console) and opens it as an app window in Chrome (or Edge).
+- **Assist Voice (Demo)**: the same on fake data, with today's date.
+- **Stop Assist Voice**: stops the API the shortcuts started.
+
+Clicking Assist Voice while it already runs only opens the window; clicking the other mode restarts it in that mode. The web app is rebuilt first when `web/src` changed. Logs go to `logs/assist-real.log` / `logs/assist-demo.log`. If `ASSIST_ACCESS_TOKEN` is set, the window asks for it once.
+
+**For a proper taskbar button**, install Assist Voice as a Chrome app once: start Assist Voice, open http://localhost:8000 in a normal Chrome tab, then ⋮ > Cast, save, and share > **Install Assist Voice**. Run `install-shortcuts.ps1` again afterwards. The launcher then opens the installed app (sharp icon, its own window), and the **Assist Voice** shortcut shares its taskbar button, so pin that one, not Chrome's own shortcut for the app (which opens the app without starting the API).
+
+Code changes: the launcher rebuilds the web app when `web/src` changed, but only when it starts the API. After changing backend or web code, click **Stop Assist Voice**, then **Assist Voice**.
+
+Remove the shortcuts with `scripts/install-shortcuts.ps1 -Remove`. Without shortcuts: `scripts/assist.ps1 -Mode real|demo` or `scripts/assist.ps1 -Stop`. `npm run dev` on :5173 keeps working for development.
 
 ### Phone access (Cloudflare Tunnel)
 
@@ -167,11 +191,11 @@ The quick-tunnel URL changes every time you start it, and your computer has to s
 2. Click **Load unpacked** and choose the `extension/` folder.
 3. Open the extension's popup and paste your `ASSIST_ACCESS_TOKEN` (if you set one).
 
-The extension connects only to the API on `localhost:8000`. Assist can then list, save and close your tabs (after approval), find saved tabs later and reopen them. Pinned tabs and Assist itself are never closed.
+The extension connects only to the API on `localhost:8000`. Assist Voice can then list, save and close your tabs (after approval), find saved tabs later and reopen them. Pinned tabs and Assist Voice itself are never closed.
 
 ### Tool-building
 
-Ask for something no tool can do, and Assist can offer to write a small new MCP server. The code is checked statically and tested in a Docker sandbox (no network, read-only, no secrets). You approve the install after seeing the code and test results. Built tools always run inside the sandbox.
+Ask for something no tool can do, and Assist Voice can offer to write a small new MCP server. The code is checked statically and tested in a Docker sandbox (no network, read-only, no secrets). You approve the install after seeing the code and test results. Built tools always run inside the sandbox.
 
 This needs Docker Desktop running and a one-time image build:
 
@@ -266,6 +290,67 @@ uv run python evals/run.py --no-toolbuilder # skip trick-10 (needs Docker)
 
 Results go to `evals/results/`. Case format and design notes: [evals/README.md](evals/README.md).
 
+### Make the demo video
+
+`scripts/make_demo.py` records the demo video by itself. It runs the real web UI, speaks each command into Chromium's fake microphone (so real Whisper transcribes it), approves, and edits the result: chapter cards, eased zooms, my narration and Assist Voice's spoken replies. It writes `demo/assist-demo.mp4` (1920×1080), `demo/assist-demo-vertical.mp4` (1080×1920) and `demo/assist-demo.srt`. The story, narration and voices are in `demo/script.json`; the tabs for the tabs scene in `demo/tabs.txt`.
+
+Voices come from `scripts/tts.py`: Gemini TTS by default (`GEMINI_API_KEY`), or `"provider": "elevenlabs"` (`ELEVENLABS_API_KEY`) or `"edge"` (free) in `script.json`.
+
+The calendar scenes use your real Google account, but only a separate calendar:
+
+1. In Google Calendar, create a calendar named **Assist Demo**. Copy its Calendar ID (Settings > Assist Demo > Integrate calendar).
+2. Put it in `demo/.env.demo` (gitignored): `GOOGLE_CALENDAR_ID=...@group.calendar.google.com`. The script refuses `primary`. It only creates and deletes events in that calendar whose titles come from `script.json` (invented classes and the letter's deadline).
+3. Sign in once in the demo browser profile (`demo/.profile/calendar`). A window opens; sign in and close it:
+
+```bash
+uv run python scripts/make_demo.py --login
+```
+
+Then:
+
+```bash
+uv run python scripts/make_demo.py                         # record missing scenes, build all outputs
+uv run python scripts/make_demo.py --force --scenes tabs   # record one scene again
+uv run python scripts/make_demo.py --build-only            # re-edit without recording
+uv run python scripts/make_demo.py --forget-login          # afterwards: delete the sign-in, empty Assist Demo
+```
+
+The tabs scene loads `extension/` into a visible Chromium window and records the screen with ffmpeg (Windows), so keep that window uncovered while it runs. The tool-building scene needs Docker. Optional: `demo/music.mp3` plays quietly under the voices.
+
+### Public demo
+
+`PUBLIC_DEMO=true` is the mode for the hosted demo, open to strangers. It implies `DEMO_MODE` and changes this:
+
+- **A sandbox per visitor.** The first request sets a random session cookie (httpOnly, SameSite=Lax, Secure on https). Each session gets its own copy of the seed data: calendar, mail, drafts, notes, open and saved tabs, memories and the undo log. Conversation threads are stored under the session on the server, so nobody can read, resume or approve another visitor's thread.
+- **Sandboxes expire** after 60 minutes without a message: their data and threads are deleted. At most 200 exist at once; when full, the oldest idle one goes.
+- **Off:** tool-building, the browser extension socket (`/ext/ws`, tabs are fake), the real Google/GitHub/notes/standup servers, and `/demo/reset` and `/demo/state`. Weather stays live. No access token is needed.
+- **Limits**, answered with a friendly reply instead of an error. The Gemini spending cap stays the hard stop.
+
+| Variable | Default | Limit |
+|---|---|---|
+| `PUBLIC_DEMO_SESSION_MESSAGES` | 25 | Messages per visitor (typed or spoken) |
+| `PUBLIC_DEMO_SESSION_PHOTOS` | 5 | Photos per visitor |
+| `PUBLIC_DEMO_IP_MESSAGES` | 60 | Messages per IP per day (UTC) |
+| `PUBLIC_DEMO_DAILY_MESSAGES` | 1000 | Messages per day, everyone together |
+| `PUBLIC_DEMO_MAX_VOICE_SECONDS` | 30 | Length of one voice message |
+| `PUBLIC_DEMO_MAX_PHOTO_MB` | 5 | Size of one photo |
+| `PUBLIC_DEMO_MAX_CHARS` | 1000 | Length of one typed message |
+| `PUBLIC_DEMO_SESSION_MINUTES` | 60 | Idle time before a sandbox is deleted |
+| `PUBLIC_DEMO_MAX_SESSIONS` | 200 | Sandboxes at once |
+| `PUBLIC_DEMO_DATA_DIR` | system temp | Where the sandbox files live (wiped at start) |
+
+The UI shows a banner ("Live demo with fake data. Your changes reset after an hour.") and example prompts.
+
+Sessions and counters live in memory, so run **one** worker. Behind a reverse proxy, start uvicorn with `--proxy-headers --forwarded-allow-ips="*"` (or the proxy's address) so the per-IP limit sees the visitor's IP. Leave `ASSIST_NOW` empty to use today's date, or set it to `2026-11-04T09:00` so the seeded calendar lines up with "today".
+
+Try it locally (build the UI first: `cd web && npm run build`):
+
+```powershell
+$env:PUBLIC_DEMO="true"; uv run uvicorn backend.assist.api:app --port 8001
+```
+
+Open http://localhost:8001; a private window is a second visitor. Tests: `uv run pytest tests/test_public_demo.py`.
+
 ---
 
 ## Known limitations
@@ -289,7 +374,7 @@ Results go to `evals/results/`. Case format and design notes: [evals/README.md](
 
 ## Safety
 
-**What Assist can never do:**
+**What Assist Voice can never do:**
 
 - **Send email.** There is no send tool, only drafts.
 - **Write to GitHub.** The token is read-only, the server is asked for read-only tools, and startup fails if a write-looking tool appears.

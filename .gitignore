@@ -234,3 +234,26 @@ mcp_servers/generated/_proposals/
 
 # Eval runs (keep latest.md)
 evals/results/*.json
+
+# Demo video: recordings, generated speech, browser profiles, local settings
+/demo/clips/
+/demo/audio/
+/demo/.profile/
+/demo/.env.demo
+/demo/.chromium/
+
+# One-click launcher: API logs and PID files (scripts/assist.ps1)
+logs/
+
+# Demo video pipeline: local only, removed after the final cut
+/demo/
+scripts/make_demo.py
+scripts/build_demo.py
+scripts/tts.py
+scripts/demo_pages.py
+scripts/speech.py
+tests/test_speech.py
+
+# Generated
+web/dist/
+*.ico
