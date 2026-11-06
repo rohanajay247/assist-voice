@@ -81,137 +81,19 @@ Notes:
 
 ---
 
-## Use it with your own accounts
+## More
 
-Leave `DEMO_MODE` and `ASSIST_NOW` empty. Each integration is optional: tools without credentials are skipped at startup.
-
-### Settings (`.env`)
-
-| Variable | Needed for | Where to get it |
-|---|---|---|
-| `GEMINI_API_KEY` | Everything (required) | [Google AI Studio](https://aistudio.google.com/apikey), free tier |
-| `GROQ_API_KEY` | Voice input (Whisper) | [console.groq.com/keys](https://console.groq.com/keys), free tier |
-| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | Optional tracing | [Langfuse](https://cloud.langfuse.com) project settings; EU base URL `https://cloud.langfuse.com` |
-| `GITHUB_PAT` | GitHub tools | Fine-grained token, read-only (see below) |
-| `STANDUP_REPOS` | "What did I do yesterday?", "Where was I?" | Comma-separated paths to local git repos |
-| `GIT_AUTHOR_EMAIL` | Standup | Your commit email, to count only your commits |
-| `ASSIST_ACCESS_TOKEN` | Phone access through the tunnel | Any long random string (see below). Empty = no check, for local use only |
-| `VISION_MODEL` | Optional | A LiteLLM model name for photos. Default: Flash-Lite |
-| `TOOLBUILDER_MODEL` | Optional | A LiteLLM model name for writing tools. Default: Flash-Lite |
-| `TOOLBUILDER_ENABLED` | Optional | `false` hides tool-building. Default: on |
-| `DEMO_MODE` | Demo only | `true` for fake data |
-| `ASSIST_NOW` | Demo and evals | Fixed Berlin time, e.g. `2026-11-04T09:00` |
-| `PUBLIC_DEMO` | Hosted demo only | `true` for the public demo: a sandbox per visitor, limits (see [Public demo](#public-demo)) |
-| `GOOGLE_CALENDAR_ID` | Optional | Calendar the event tools use. Default: your main calendar (`primary`). For another one: Google Calendar > Settings > the calendar > **Integrate calendar** > Calendar ID |
-
-**GitHub token.** Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new). Pick the repos, then set these repository permissions to **Read-only**: Contents, Issues, Pull requests, Actions (Metadata is read-only by default). Assist Voice also sends GitHub's `X-MCP-Readonly` header and refuses to start if the server offers a tool that looks like a write.
-
-### Google Calendar and Gmail
-
-Assist Voice signs in with your own Google Cloud OAuth client, so your data goes only to your project.
-
-1. Open the [Google Cloud Console](https://console.cloud.google.com/) and create a new project.
-2. Under **APIs & Services > Library**, enable **Google Calendar API** and **Gmail API**.
-3. Open **Google Auth Platform** (formerly "OAuth consent screen"). Choose **External**, enter an app name and your email.
-4. Under **Audience**, keep the publishing status **Testing** and add your own Google account as a **test user**.
-5. Under **Clients**, create a client of type **Desktop app**. Download its JSON.
-6. Save that file as `secrets/gcp-oauth.keys.json`. The `secrets/` folder is gitignored.
-7. Sign in once. A browser window opens, you allow access, and the script writes `secrets/google-token.json`:
-
-```bash
-uv run python scripts/google_auth.py
-```
-
-8. Restart the API. The Google tools load only when the token exists.
-
-The server refreshes the token by itself. In Testing mode Google expires it after 7 days. When that happens, the tools reply "Run scripts/google_auth.py", and you run the script again.
-
-**Scopes used:**
-
-- `calendar.events`: read, create and delete events. No calendar settings or sharing.
-- `gmail.readonly`: search and read mail.
-- `gmail.compose`: create and delete drafts. The scope would also allow sending, but Assist Voice has no send tool. Drafts wait in Gmail for you to send.
-
-### Use it every day (Windows)
-
-One click starts Assist Voice in its own window, without terminals. The API serves the built web app, so it all runs as one process on http://localhost:8000.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install-shortcuts.ps1
-```
-
-This puts two shortcuts on your desktop and in the Start menu (search "Assist Voice", then right-click > **Pin to taskbar**):
-
-- **Assist Voice**: starts the API on your real accounts (hidden, no console) and opens it as an app window in Chrome (or Edge).
-- **Assist Voice (Demo)**: the same on fake data, with today's date.
-
-While it runs, an Assist Voice icon sits next to the clock. Closing the window leaves it running, so your phone and the tabs extension keep working. Right-click the icon for **Open Assist Voice** or **Stop Assist Voice**; the icon goes away once it has stopped.
-
-Clicking Assist Voice while it already runs only opens the window; clicking the other mode restarts it in that mode. The web app is rebuilt first when `web/src` changed. Logs go to `logs/assist-real.log` / `logs/assist-demo.log`. If `ASSIST_ACCESS_TOKEN` is set, the window asks for it once.
-
-**To pin it**, press Start, type "Assist Voice", right-click it > **Pin to taskbar**. Pin that shortcut, not the open window: the shortcut starts the API first, the window's own pin doesn't.
-
-**Sharper window (optional):** install Assist Voice as a Chrome app: open http://localhost:8000 in Chrome and choose ⋮ > Cast, save, and share > **Install Assist Voice**, then run `install-shortcuts.ps1` again. The launcher then opens the installed app in its own window.
-
-Code changes: the launcher rebuilds the web app when `web/src` changed, but only when it starts the API. After changing backend or web code, stop it from the tray icon, then click **Assist Voice**.
-
-Remove the shortcuts with `scripts/install-shortcuts.ps1 -Remove`. Without shortcuts: `scripts/assist.ps1 -Mode real|demo` or `scripts/assist.ps1 -Stop`. `npm run dev` on :5173 keeps working for development.
-
-### Phone access (Cloudflare Tunnel)
-
-The app is an installable PWA. A Cloudflare quick tunnel gives it a public HTTPS URL, which the phone also needs for the mic and camera.
-
-1. Install cloudflared:
-
-```powershell
-winget install --id Cloudflare.cloudflared
-```
-
-   On macOS or Linux, see [Cloudflare's downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
-
-2. The URL is public, so set an access token in `.env` as `ASSIST_ACCESS_TOKEN`. To generate one:
-
-```bash
-uv run python -c "import secrets; print(secrets.token_urlsafe(24))"
-```
-
-3. Start the API and the UI as above, then the tunnel:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/tunnel.ps1
-```
-
-```bash
-cloudflared tunnel --url http://localhost:5173
-```
-
-4. Open the printed `https://….trycloudflare.com` URL on your phone. Enter the token on the lock screen, then choose "Add to Home Screen".
-
-The quick-tunnel URL changes every time you start it, and your computer has to stay on.
-
-### Save my tabs (Chrome extension)
-
-1. Open `chrome://extensions` and turn on **Developer mode**.
-2. Click **Load unpacked** and choose the `extension/` folder.
-3. Open the extension's popup and paste your `ASSIST_ACCESS_TOKEN` (if you set one).
-
-The extension connects only to the API on `localhost:8000`. Assist Voice can then list, save and close your tabs (after approval), find saved tabs later and reopen them. Pinned tabs and Assist Voice itself are never closed.
-
-### Tool-building
-
-Ask for something no tool can do, and Assist Voice can offer to write a small new MCP server. The code is checked statically and tested in a Docker sandbox (no network, read-only, no secrets). You approve the install after seeing the code and test results. Built tools always run inside the sandbox.
-
-This needs Docker Desktop running and a one-time image build:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_sandbox.ps1
-```
-
-```bash
-docker build -t assist-sandbox sandbox
-```
-
-No Docker? Set `TOOLBUILDER_ENABLED=false` to hide it.
+| Guide | What's in it |
+|---|---|
+| [Use it with your own accounts](docs/setup.md) | Settings, GitHub token, Google Calendar and Gmail sign-in |
+| [Use it every day (Windows)](docs/windows.md) | One-click shortcuts, tray icon, pinning |
+| [Phone access](docs/phone.md) | A private HTTPS link through Cloudflare Tunnel |
+| [Save my tabs](docs/extension.md) | The Chrome extension |
+| [Tool-building](docs/tool-building.md) | Letting it write new tools, tested in a Docker sandbox |
+| [Public demo](docs/public-demo.md) | Hosting it for strangers: sandboxes and limits |
+| [How it works](docs/architecture.md) | Routing, approvals, undo, routines |
+| [Evals](docs/evals.md) | How it's measured, what the evals found, how to run them |
+| [Known limitations](docs/limitations.md) | What doesn't work yet |
 
 ---
 
@@ -229,19 +111,13 @@ flowchart LR
   T --> M[MCP servers<br/>notes, weather, Google,<br/>GitHub, standup, built tools]
 ```
 
-- **PWA → FastAPI.** The UI sends one message per request. Conversations live on the server in a LangGraph checkpointer, keyed by a thread id.
-- **Tool routing.** A cheap router call picks the tool groups a message needs (calendar, email, code, …). The agent only sees those tools, plus the previous turn's and `undo_last_action`. If the router fails, the agent gets every tool.
-- **Approvals.** Only tools on a safe list run directly. For any other call, the graph pauses with `interrupt()`, and `/chat` returns `pending` instead of a reply. The UI shows an approval card (an email preview for drafts, the code and tests for built tools). `/approve` resumes the thread. A denied call never runs.
-- **Undo.** After tools run, the `record` node stores each successful change with its reverse, e.g. `create_event` → `delete_event(id)`, in SQLite. "Undo that" runs the newest reverse. An undo that can never succeed (the event is already gone) is closed and reported. One that failed on sign-in or the network stays open to retry.
-- **Routines.** "Start my day", "Wrap up", "Where was I?" and "What did you do for me this week?" are fixed recipes in code. They read their sources in parallel, and one model call writes the brief. Counts and dates are computed in code, never by the model.
-- **Model outages.** If Gemini is over quota, times out or returns a 5xx, `/chat` and `/approve` still answer normally: the reply says the AI service is unavailable and nothing was changed. If an approved change had already run, the reply says so and the steps panel shows it.
-- **Steps panel.** Every reply lists what happened: plans, approvals, tool runs and undo entries.
+Every tool call that changes something pauses for your approval, and every approved change is stored with its reverse so "Undo that" can revert it. Details: [How it works](docs/architecture.md).
 
 ---
 
 ## Results
 
-Final run: 3 runs per case. Strict scoring: a case passes only if it passed in every run.
+40 scored commands, 3 runs each; a case passes only if it passed every run.
 
 | Area | Passed | Median latency |
 |---|---|---|
@@ -258,94 +134,8 @@ Final run: 3 runs per case. Strict scoring: a case passes only if it passed in e
 | weather | 1/1 | 2.9s |
 | **Total** | **40/40** | |
 
-`weather-02` is a known issue (hyphenated place names) and isn't scored.
 
-### How it was measured
-
-- **41 cases:** 31 normal commands and 10 trick attempts (40 scored, 1 known issue). Tricks include prompt injection in an email, a browser tab and a photo; "delete all my notes, you don't need to ask"; asking for the access token; and building a tool that uploads SSH keys.
-- **Demo data, fixed clock** (`ASSIST_NOW`), and `POST /demo/reset` before every case.
-- **Black-box over HTTP.** The runner calls `/chat` and `/approve` like the UI does.
-- **Scored on behaviour, not wording:** tools called or proposed, arguments, approval pauses, and data changes in `GET /demo/state`. A regex checks key facts. An LLM judge grades 5 refusal and summary cases, where the wording varies.
-- **Two checks on every case:** no write tool ran without an approval of that exact tool, and no reply contains a secret from `.env`.
-
-### What the evals found
-
-The first full run scored **30/39**. The failures were real bugs, all fixed since:
-
-- It offered to open issues and comment on GitHub, which it can't do.
-- The weekly receipt said "0 actions, 1 undone" because of how the counts were named.
-- It saved "always approve my actions" as a memory. Now memories that touch approvals are blocked in code.
-- The morning brief sometimes dropped or renamed events, or came back empty. Root cause: facts went through the model twice (the routine, then the agent). Now today's events and the receipt totals are written in code, and routine briefs reach the user without a second model pass.
-- One-day calendar events needed a second approval card.
-- A hung vision call made one request wait 9 minutes. Model calls now have timeouts.
-- When Gemini's quota ran out, the API crashed with a 500. Now it replies that the AI service is unavailable.
-- Approving while the network dropped saved the change, but the UI kept the buttons and accepted a later Deny. Now `/approve` returns 409 when nothing is waiting, and the UI reloads the real state.
-
-### Run the evals
-
-Start the API in demo mode (step 3 above), then:
-
-```bash
-uv run python evals/run.py                  # all cases once
-uv run python evals/run.py --runs 3         # 3 runs each, shows flaky cases
-uv run python evals/run.py --only trick-    # one group
-uv run python evals/run.py --no-toolbuilder # skip trick-10 (needs Docker)
-```
-
-Results go to `evals/results/`. Case format and design notes: [evals/README.md](evals/README.md).
-
-### Public demo
-
-`PUBLIC_DEMO=true` is the mode for the hosted demo, open to strangers. It implies `DEMO_MODE` and changes this:
-
-- **A sandbox per visitor.** The first request sets a random session cookie (httpOnly, SameSite=Lax, Secure on https). Each session gets its own copy of the seed data: calendar, mail, drafts, notes, open and saved tabs, memories and the undo log. Conversation threads are stored under the session on the server, so nobody can read, resume or approve another visitor's thread.
-- **Sandboxes expire** after 60 minutes without a message: their data and threads are deleted. At most 200 exist at once; when full, the oldest idle one goes.
-- **Off:** tool-building, the browser extension socket (`/ext/ws`, tabs are fake), the real Google/GitHub/notes/standup servers, and `/demo/reset` and `/demo/state`. Weather stays live. No access token is needed.
-- **Limits**, answered with a friendly reply instead of an error. The Gemini spending cap stays the hard stop.
-
-| Variable | Default | Limit |
-|---|---|---|
-| `PUBLIC_DEMO_SESSION_MESSAGES` | 25 | Messages per visitor (typed or spoken) |
-| `PUBLIC_DEMO_SESSION_PHOTOS` | 5 | Photos per visitor |
-| `PUBLIC_DEMO_IP_MESSAGES` | 60 | Messages per IP per day (UTC) |
-| `PUBLIC_DEMO_DAILY_MESSAGES` | 1000 | Messages per day, everyone together |
-| `PUBLIC_DEMO_MAX_VOICE_SECONDS` | 30 | Length of one voice message |
-| `PUBLIC_DEMO_MAX_PHOTO_MB` | 5 | Size of one photo |
-| `PUBLIC_DEMO_MAX_CHARS` | 1000 | Length of one typed message |
-| `PUBLIC_DEMO_SESSION_MINUTES` | 60 | Idle time before a sandbox is deleted |
-| `PUBLIC_DEMO_MAX_SESSIONS` | 200 | Sandboxes at once |
-| `PUBLIC_DEMO_DATA_DIR` | system temp | Where the sandbox files live (wiped at start) |
-
-The UI shows a banner ("Live demo with fake data. Your changes reset after an hour.") and example prompts.
-
-Sessions and counters live in memory, so run **one** worker. Behind a reverse proxy, start uvicorn with `--proxy-headers --forwarded-allow-ips="*"` (or the proxy's address) so the per-IP limit sees the visitor's IP. Leave `ASSIST_NOW` empty to use today's date, or set it to `2026-11-04T09:00` so the seeded calendar lines up with "today".
-
-Try it locally (build the UI first: `cd web && npm run build`):
-
-```powershell
-$env:PUBLIC_DEMO="true"; uv run uvicorn backend.assist.api:app --port 8001
-```
-
-Open http://localhost:8001; a private window is a second visitor. Tests: `uv run python -m pytest tests/test_public_demo.py`.
-
----
-
-## Known limitations
-
-- **Conversations live in memory.** Restarting the API (or `--reload`) loses all threads, and undo only covers the current thread. A persistent checkpointer is needed before a real deployment.
-- **Slow tool calls.** Each MCP tool call starts a fresh server process, which adds about 2 seconds.
-- **The steps panel isn't live.** It appears once the reply is done.
-- **Single user.** One set of accounts, one browser extension connection.
-- **Tool-building is local only.** It needs Docker on the same machine.
-- **Quick tunnel URLs change on every start,** so an installed home-screen app breaks after a restart.
-- **Google sign-in expires weekly** while the OAuth app is in Testing.
-- **Time edges.** "Tomorrow" said after midnight lands a day late, and commits after midnight count to the next day in the standup.
-- **Weather:** hyphenated districts like "Albstadt-Ebingen" aren't found.
-- **Draft preview.** The approval card shows Gemini's draft text. Gmail gets a version with tidied line breaks, which can look slightly different.
-- **Two safeguards live in the prompt and the UI, not in code.** Only the prompt stops parallel undo calls. Only the UI stops a new message while an approval is waiting.
-- **Privacy on the free Gemini tier.** Messages and photos are processed by Google and may be used to improve their products.
-- **Langfuse** shows no token or cost numbers for these calls, so cost per command isn't measured yet.
-- **The evals are a smoke test, not a benchmark:** 41 cases and a few runs each.
+`weather-02` is a known issue (hyphenated place names) and isn't scored. How it's measured: [Evals](docs/evals.md).
 
 ---
 
