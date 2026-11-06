@@ -9,7 +9,8 @@ import json
 import sqlite3
 from functools import lru_cache
 
-from backend.assist.demo import DB_PATH, SEED_PATH
+from backend.assist import demo
+from backend.assist.demo import SEED_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -39,13 +40,19 @@ CREATE TABLE IF NOT EXISTS open_tabs (
 
 
 def conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB_PATH)
+    # The shared demo.db, or in public demo the visitor's own file
+    c = sqlite3.connect(demo.db_path(demo.DB_PATH))
     c.row_factory = sqlite3.Row
     return c
 
 
-with conn() as _c:
-    _c.executescript(SCHEMA)
+def init_db() -> None:
+    with conn() as c:
+        c.executescript(SCHEMA)
+
+
+if not demo.PUBLIC_DEMO:  # public demo: created per visitor, from a template
+    init_db()
 
 
 @lru_cache(maxsize=1)

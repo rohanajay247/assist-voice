@@ -13,28 +13,33 @@ from pathlib import Path
 
 from backend.assist import demo
 
-DB_PATH = demo.db_path(Path(__file__).parent / "actions.db")  # *.db is gitignored
+DB_PATH = Path(__file__).parent / "actions.db"  # *.db is gitignored; demo mode uses the demo DB
 
 
 def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(demo.db_path(DB_PATH))  # per call: public demo has one DB per visitor
     conn.row_factory = sqlite3.Row  # rows behave like dicts
     return conn
 
 
-# Runs once on import
-with get_conn() as conn:
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS actions ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "thread_id TEXT NOT NULL, "
-        "tool TEXT NOT NULL, "
-        "args TEXT NOT NULL, "
-        "reverse_tool TEXT NOT NULL, "
-        "reverse_args TEXT NOT NULL, "
-        "undone INTEGER NOT NULL DEFAULT 0, "
-        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
-    )
+def init_db() -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS actions ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "thread_id TEXT NOT NULL, "
+            "tool TEXT NOT NULL, "
+            "args TEXT NOT NULL, "
+            "reverse_tool TEXT NOT NULL, "
+            "reverse_args TEXT NOT NULL, "
+            "undone INTEGER NOT NULL DEFAULT 0, "
+            "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+
+
+# Runs once on import (public demo: per visitor, from a template)
+if not demo.PUBLIC_DEMO:
+    init_db()
 
 
 def log_action(

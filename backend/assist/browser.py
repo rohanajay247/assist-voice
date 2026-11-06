@@ -27,10 +27,10 @@ from langchain_core.tools import tool
 from backend.assist import clock, demo
 
 BERLIN = ZoneInfo("Europe/Berlin")
-DB_PATH = demo.db_path(Path(__file__).parent / "tabs.db")  # *.db is gitignored
+DB_PATH = Path(__file__).parent / "tabs.db"  # *.db is gitignored; demo mode uses the demo DB
 TIMEOUT = 10  # seconds to wait for the extension
 NOT_CONNECTED = (
-    "The browser extension isn't connected. Open Chrome with the Assist extension "
+    "The browser extension isn't connected. Open Chrome with the Assist Voice extension "
     "installed and the API running."
 )
 # Never closed: Assist's own app (closing it would end the conversation)
@@ -48,10 +48,23 @@ SEARCH_URL = re.compile(
 
 _socket: WebSocket | None = None
 _waiting: dict[str, asyncio.Future] = {}
-# Last list_open_tabs result: short number (1, 2, 3...) -> tab. The model works
-# with these numbers; Chrome's own ids are 10 digits and it garbles them.
-_listed: dict[int, dict] = {}
-_searches: list[dict] = []  # search tabs from the same list: never shown to the model
+
+
+class _Listing:
+    """The last list_open_tabs result. One per visitor in public demo, else just one."""
+
+    def __init__(self):
+        # short number (1, 2, 3...) -> tab. The model works with these numbers;
+        # Chrome's own ids are 10 digits and it garbles them.
+        self.listed: dict[int, dict] = {}
+        self.searches: list[dict] = []  # search tabs from the same list: never shown to the model
+
+
+_listings: dict[str, _Listing] = {}
+
+
+def _listing() -> _Listing:
+    return _listings.setdefault(demo.session_key(), _Listing())
 
 
 async def serve(ws: WebSocket) -> None:
@@ -78,18 +91,22 @@ async def serve(ws: WebSocket) -> None:
 
 
 def connected() -> bool:
-    return demo.DEMO_MODE or _socket is not None
+    return (demo.DEMO_MODE and not demo.REAL_BROWSER) or _socket is not None
 
 
 def reset_listing() -> None:
     """Forget the last list_open_tabs numbering (demo reset: the tabs changed)."""
-    global _listed, _searches
-    _listed, _searches = {}, []
+    _listings.pop(demo.session_key(), None)
+
+
+def forget_listing(key: str) -> None:
+    """Public demo: a visitor's session ended."""
+    _listings.pop(key, None)
 
 
 async def _ask(cmd: str, **payload) -> dict:
     """Send one command to the extension and wait for its answer."""
-    if demo.DEMO_MODE:
+    if demo.DEMO_MODE and not demo.REAL_BROWSER:
         from backend.assist.demo import fake_browser  # demo: fake tabs instead of Chrome
         return await fake_browser.ask(cmd, **payload)
     if _socket is None:
@@ -124,25 +141,30 @@ async def _open_tabs() -> dict[int, dict]:
 # ---------- storage ----------
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(demo.db_path(DB_PATH))  # per call: public demo has one DB per visitor
     conn.row_factory = sqlite3.Row
     return conn
 
 
-with _conn() as c:
-    c.execute(
-        "CREATE TABLE IF NOT EXISTS saved_tabs ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "batch TEXT NOT NULL, "
-        "category TEXT NOT NULL, "  # read_later | todo | search | closed (kept so undo can reopen)
-        "title TEXT NOT NULL, "
-        "url TEXT NOT NULL, "
-        "saved_at TEXT NOT NULL, "  # Berlin time, ISO
-        "opened_at TEXT)"
-    )
-    # Day 6: a saved tab can be finished ("I applied to that job"), so lists don't go stale
-    if "done_at" not in {r["name"] for r in c.execute("PRAGMA table_info(saved_tabs)")}:
-        c.execute("ALTER TABLE saved_tabs ADD COLUMN done_at TEXT")
+def init_db() -> None:
+    with _conn() as c:
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS saved_tabs ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "batch TEXT NOT NULL, "
+            "category TEXT NOT NULL, "  # read_later | todo | search | closed (kept so undo can reopen)
+            "title TEXT NOT NULL, "
+            "url TEXT NOT NULL, "
+            "saved_at TEXT NOT NULL, "  # Berlin time, ISO
+            "opened_at TEXT)"
+        )
+        # Day 6: a saved tab can be finished ("I applied to that job"), so lists don't go stale
+        if "done_at" not in {r["name"] for r in c.execute("PRAGMA table_info(saved_tabs)")}:
+            c.execute("ALTER TABLE saved_tabs ADD COLUMN done_at TEXT")
+
+
+if not demo.PUBLIC_DEMO:  # public demo: created per visitor, from a template
+    init_db()
 
 
 def _now() -> str:
@@ -154,34 +176,35 @@ def _now() -> str:
 async def list_open_tabs() -> str:
     """List the tabs open in the user's browser, numbered 1, 2, 3...
     Call this first for 'save my tabs' or 'clean up my browser'."""
-    global _listed, _searches
+    listing = _listing()
     try:
         tabs = await _open_tabs()
     except ConnectionError as e:
         return json.dumps({"error": str(e)})
     rest = [t for t in tabs.values() if not _protected(t)]
     # Searches are sorted by the server, not the model: always closed and remembered
-    _searches = [t for t in rest if SEARCH_URL.match(t["url"])]
-    _listed = {n: t for n, t in enumerate([t for t in rest if t not in _searches], start=1)}
+    listing.searches = [t for t in rest if SEARCH_URL.match(t["url"])]
+    listing.listed = {n: t for n, t in enumerate([t for t in rest if t not in listing.searches], start=1)}
     return json.dumps({
         "tabs": [
             {"n": n, "title": t.get("title", "")[:90], "url": t["url"][:150]}
-            for n, t in _listed.items()
+            for n, t in listing.listed.items()
         ],
-        "searches_closed_and_remembered_automatically": len(_searches),
+        "searches_closed_and_remembered_automatically": len(listing.searches),
         "always_kept_open": len(tabs) - len(rest),  # pinned tabs and Assist itself
     })
 
 
 def _plan(read_later: list[int], todo: list[int], keep_open: list[int]) -> dict[str, list[dict]]:
     """Which listed tab goes where. Every listed tab not saved or kept is closed."""
+    listing = _listing()
     picked: dict[int, str] = {}
     for category, numbers in (("keep_open", keep_open), ("todo", todo), ("read_later", read_later)):
         for n in numbers:
-            if n in _listed:
+            if n in listing.listed:
                 picked.setdefault(n, category)  # first list wins: keep > todo > read_later
-    plan = {"read_later": [], "todo": [], "keep_open": [], "close": [], "search": list(_searches)}
-    for n, tab in _listed.items():
+    plan = {"read_later": [], "todo": [], "keep_open": [], "close": [], "search": list(listing.searches)}
+    for n, tab in listing.listed.items():
         plan[picked.get(n, "close")].append(tab)
     return plan
 
@@ -193,7 +216,7 @@ async def save_tabs(read_later: list[int], todo: list[int], keep_open: list[int]
     `todo`: pages that need an action, like forms, applications, job posts (saved, then closed).
     `keep_open`: tabs the user is still working in (left open, not saved).
     Every other listed tab (searches, finished pages) is closed without saving."""
-    if not _listed and not _searches:
+    if not _listing().listed and not _listing().searches:
         return json.dumps({"error": "call list_open_tabs first"})
     plan = _plan(read_later, todo, keep_open or [])
     try:

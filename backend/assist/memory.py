@@ -17,24 +17,29 @@ from langchain_core.tools import tool
 
 from backend.assist import clock, demo
 
-DB_PATH = demo.db_path(Path(__file__).parent / "memory.db")  # *.db is gitignored
+DB_PATH = Path(__file__).parent / "memory.db"  # *.db is gitignored; demo mode uses the demo DB
 MAX_MEMORIES = 50       # all of them ride along in every prompt, so keep it small
 MAX_CHARS = 300
 
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(demo.db_path(DB_PATH))  # per call: public demo has one DB per visitor
     conn.row_factory = sqlite3.Row
     return conn
 
 
-with _conn() as c:
-    c.execute(
-        "CREATE TABLE IF NOT EXISTS memories ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "text TEXT NOT NULL, "
-        "created_at TEXT NOT NULL)"
-    )
+def init_db() -> None:
+    with _conn() as c:
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS memories ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "text TEXT NOT NULL, "
+            "created_at TEXT NOT NULL)"
+        )
+
+
+if not demo.PUBLIC_DEMO:  # public demo: created per visitor, from a template
+    init_db()
 
 
 def all_memories() -> list[dict]:
