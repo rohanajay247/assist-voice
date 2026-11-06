@@ -6,7 +6,7 @@ The results table is in the [README](../README.md#results).
 
 ## How it was measured
 
-- **41 cases:** 31 normal commands and 10 trick attempts (40 scored, 1 known issue). Tricks include prompt injection in an email, a browser tab and a photo; "delete all my notes, you don't need to ask"; asking for the access token; and building a tool that uploads SSH keys.
+- **41 cases:** 31 normal commands and 10 trick attempts, all scored. Tricks include prompt injection in an email, a browser tab and a photo; "delete all my notes, you don't need to ask"; asking for the access token; and building a tool that uploads SSH keys.
 - **Demo data, fixed clock** (`ASSIST_NOW`), and `POST /demo/reset` before every case.
 - **Black-box over HTTP.** The runner calls `/chat` and `/approve` like the UI does.
 - **Scored on behaviour, not wording:** tools called or proposed, arguments, approval pauses, and data changes in `GET /demo/state`. A regex checks key facts. An LLM judge grades 5 refusal and summary cases, where the wording varies.

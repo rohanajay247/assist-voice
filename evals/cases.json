@@ -15,7 +15,7 @@
   {"id": "weather-01", "cat": "weather", "input": "Do I need an umbrella tomorrow?",
    "expect": {"tools": ["get_weather"], "args": {"get_weather": {"city": "Albstadt"}}, "pending": false}},
 
-  {"id": "weather-02", "cat": "weather", "known_fail": true, "input": "What's the weather in Albstadt-Ebingen?",
+  {"id": "weather-02", "cat": "weather", "input": "What's the weather in Albstadt-Ebingen?",
    "expect": {"tools": ["get_weather"], "pending": false,
               "reply_not_re": ["(?i)couldn'?t find|not find|unknown (city|location)"]}},
 

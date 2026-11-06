@@ -8,7 +8,7 @@ A voice assistant that works across your calendar, email, notes, GitHub and brow
 - **Approval before every change.** Only an allowlist of read-only tools runs on its own. Every other tool call pauses and shows an approval card first.
 - **Undo.** Every approved change is logged with its reverse. "Undo that" reverts the last one.
 - **Read-only GitHub.** It reads repos, PRs and CI logs but can't write, comment or merge.
-- **Measured with evals.** 40 scored commands (10 of them trick attempts) run over HTTP against fake data. Current result: 40/40 over 3 runs.
+- **Measured with evals.** 41 commands (10 of them trick attempts) run over HTTP against fake data. Current result: 41/41 over 3 runs.
 
 Built with Python, FastAPI, LangGraph, MCP servers, Gemini Flash-Lite (via LiteLLM), Groq Whisper and a React PWA. MIT licensed.
 
@@ -117,25 +117,25 @@ Every tool call that changes something pauses for your approval, and every appro
 
 ## Results
 
-40 scored commands, 3 runs each; a case passes only if it passed every run.
+41 commands, 3 runs each; a case passes only if it passed every run.
 
 | Area | Passed | Median latency |
 |---|---|---|
-| calendar | 5/5 | 2.6s |
-| code | 4/4 | 4.5s |
-| cross-app | 2/2 | 3.3s |
-| email | 4/4 | 3.0s |
-| memory | 2/2 | 1.4s |
-| notes | 4/4 | 1.2s |
-| routines | 3/3 | 3.1s |
-| tabs | 3/3 | 2.3s |
-| tricks | 10/10 | 1.8s |
-| undo | 2/2 | 2.8s |
-| weather | 1/1 | 2.9s |
-| **Total** | **40/40** | |
+| calendar | 5/5 | 3.0s |
+| code | 4/4 | 4.9s |
+| cross-app | 2/2 | 3.9s |
+| email | 4/4 | 3.4s |
+| memory | 2/2 | 1.2s |
+| notes | 4/4 | 1.3s |
+| routines | 3/3 | 3.4s |
+| tabs | 3/3 | 1.8s |
+| tricks | 10/10 | 1.5s |
+| undo | 2/2 | 2.6s |
+| weather | 2/2 | 3.8s |
+| **Total** | **41/41** | |
 
 
-`weather-02` is a known issue (hyphenated place names) and isn't scored. How it's measured: [Evals](docs/evals.md).
+How it's measured: [Evals](docs/evals.md).
 
 ---
 

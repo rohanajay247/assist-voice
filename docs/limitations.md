@@ -10,7 +10,6 @@
 - **Quick tunnel URLs change on every start,** so an installed home-screen app breaks after a restart.
 - **Google sign-in expires weekly** while the OAuth app is in Testing.
 - **Time edges.** "Tomorrow" said after midnight lands a day late, and commits after midnight count to the next day in the standup.
-- **Weather:** hyphenated districts like "Albstadt-Ebingen" aren't found.
 - **Draft preview.** The approval card shows Gemini's draft text. Gmail gets a version with tidied line breaks, which can look slightly different.
 - **Two safeguards live in the prompt and the UI, not in code.** Only the prompt stops parallel undo calls. Only the UI stops a new message while an approval is waiting.
 - **Privacy on the free Gemini tier.** Messages and photos are processed by Google and may be used to improve their products.

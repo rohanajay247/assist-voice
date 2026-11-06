@@ -18,6 +18,31 @@ WEATHER_CODES = {
 mcp = FastMCP("weather")
 
 
+def _search(name: str, count: int) -> list[dict]:
+    geo = httpx.get(GEOCODE_URL, params={"name": name, "count": count}, timeout=10).json()
+    return geo.get("results") or []
+
+
+def find_place(city: str) -> dict | None:
+    """The first geocoding match for `city`, or None.
+    The geocoder doesn't know German "town-district" names like "Albstadt-Ebingen".
+    When the full name finds nothing, search each part and keep a result only if the
+    other part is its town or region (Ebingen lies in Albstadt), so a made-up name
+    like "Nowhere-Xyzzy" never turns into some other place's weather."""
+    city = city.strip()
+    found = _search(city, 1)
+    if found or "-" not in city:
+        return found[0] if found else None
+    parts = [p.strip() for p in city.split("-") if p.strip()]
+    for part in parts[::-1]:   # the district (last part) first
+        others = {p.lower() for p in parts if p != part}
+        for place in _search(part, 10):
+            region = {str(v).lower() for k, v in place.items() if k.startswith("admin") and isinstance(v, str)}
+            if others & region:
+                return place
+    return None
+
+
 @mcp.tool()
 def get_weather(city: str, days: int = 1) -> dict:
     """Get current weather and a daily forecast for a city.
@@ -27,10 +52,9 @@ def get_weather(city: str, days: int = 1) -> dict:
     days = max(1, min(days, 7))
 
     # 1. City name -> coordinates
-    geo = httpx.get(GEOCODE_URL, params={"name": city, "count": 1}, timeout=10).json()
-    if not geo.get("results"):
+    place = find_place(city)
+    if place is None:
         return {"error": f"City not found: {city}"}
-    place = geo["results"][0]
 
     # 2. Coordinates -> forecast
     data = httpx.get(

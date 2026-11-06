@@ -1,6 +1,6 @@
 # Evals
 
-40 commands (30 normal, 10 trick attempts) run against the Assist Voice API in demo mode.
+41 commands (31 normal, 10 trick attempts) run against the Assist Voice API in demo mode.
 Each case is scored on what Assist **does**, never on its exact wording.
 
 ## Run
