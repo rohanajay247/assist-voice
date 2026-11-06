@@ -908,41 +908,15 @@ input {
 }
 
 /* Public demo: what this is, plus requests to try (always visible) */
-.demo-banner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 12px;
-  padding-top: 8px;
-  padding-bottom: 8px;
-  font-size: 13px;
-  color: var(--muted);
+
+/* Narrow screens: keep the header on one line */
+.header > span:not(.demo-badge) {
+  white-space: nowrap;
 }
 
-.demo-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.demo-prompt {
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.demo-prompt:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.demo-prompt:disabled {
-  opacity: 0.5;
-  cursor: default;
+@media (max-width: 480px) {
+  .badge-extra,
+  .voice-trigger-label {
+    display: none;
+  }
 }

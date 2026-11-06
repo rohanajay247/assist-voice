@@ -170,8 +170,49 @@ async function checkToken(token: string): Promise<AuthCheck> {
   }
 }
 
-// Public demo: always-visible requests to try (the start screen goes away)
-const DEMO_PROMPTS = ["Start my day", "What needs a reply?", "Save my tabs"];
+// Requests to try, typed into the empty message box one after another
+const SUGGESTIONS = [
+  "Start my day",
+  "What needs a reply from me?",
+  "What’s on tomorrow?",
+  "Where was I?",
+  "Save my tabs",
+];
+
+// "Try: Start my day" typed letter by letter, held, cleared, then the next one.
+// Static (no typing) for people who prefer reduced motion.
+function useTypedSuggestion(active: boolean): string {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    if (!active) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    let n = 0;
+    let chars = 0;
+    let timer = 0;
+    const tick = () => {
+      const target = SUGGESTIONS[n % SUGGESTIONS.length];
+      if (still) {
+        setText(`Try: ${target}`);
+        n++;
+        timer = window.setTimeout(tick, 3500);
+        return;
+      }
+      if (chars <= target.length) {
+        setText(`Try: ${target.slice(0, chars)}`);
+        chars++;
+        timer = window.setTimeout(tick, chars === target.length + 1 ? 2200 : 55);
+      } else {
+        n++;
+        chars = 0;
+        setText("Try: ");
+        timer = window.setTimeout(tick, 350);
+      }
+    };
+    tick();
+    return () => window.clearTimeout(timer);
+  }, [active]);
+  return active ? text : "";
+}
 
 // Sends the saved access token. A 401 means it stopped working: forget it
 // and let the caller show the lock view.
@@ -576,8 +617,13 @@ function guessLang(text: string): string {
 // Prefer British English (Assist's voice: Chrome's "Google UK English …", Edge's
 // en-GB Natural ones), then the neural voices browsers ship. The saved choice is
 // per address, so a new one (the launcher's :8000) starts here.
+// Chrome loads its Google voices a moment after the page opens; asking once starts
+// that, so the first reply already has them (otherwise "Auto" picks a plain Windows voice)
+if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
+
 function voiceScore(v: SpeechSynthesisVoice): number {
   return (
+    (v.name === "Google UK English Female" ? 20 : 0) + // Assist's voice in Chrome
     (v.lang.toLowerCase().replace("_", "-") === "en-gb" ? 8 : 0) +
     // ...and a female one: Chrome's "Google UK English Female", Edge's Sonia/Libby/Maisie, Windows' Hazel
     (/female|sonia|libby|maisie|hazel/i.test(v.name) ? 1 : 0) +
@@ -1461,6 +1507,10 @@ export default function App() {
     return null;
   }
 
+  const suggestion = useTypedSuggestion(
+    voice === "idle" && !approval && !pending && !input,
+  );
+
   if (auth === "checking") return <div className="app" />;
   if (auth === "locked")
     return <LockView message={lockMessage} onUnlock={unlock} />;
@@ -1476,7 +1526,7 @@ export default function App() {
         ? "Transcribing…"
         : approval
           ? "Approve or deny first"
-          : "Message Assist Voice";
+          : suggestion || "Message Assist Voice";
 
   return (
     <div className="app">
@@ -1486,9 +1536,19 @@ export default function App() {
         {demoMode && (
           <span
             className="demo-badge"
-            title="Demo mode: fake calendar, email, GitHub, notes and tabs. Nothing real is changed."
+            title={
+              publicDemo
+                ? "Live demo with fake calendar, email, GitHub, notes and tabs. Your changes reset after an hour."
+                : "Demo mode: fake calendar, email, GitHub, notes and tabs. Nothing real is changed."
+            }
           >
-            Demo mode
+            {publicDemo ? (
+              <>
+                Live demo<span className="badge-extra"> · fake data</span>
+              </>
+            ) : (
+              "Demo mode"
+            )}
           </span>
         )}
         <div className="header-actions">
@@ -1530,25 +1590,6 @@ export default function App() {
           </button>
         </div>
       </header>
-
-      {publicDemo && (
-        <div className="column demo-banner" role="note">
-          <span>Live demo with fake data. Your changes reset after an hour.</span>
-          <span className="demo-prompts">
-            {DEMO_PROMPTS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                className="demo-prompt"
-                disabled={pending || !!approval || voice !== "idle"}
-                onClick={() => send(p)}
-              >
-                {p}
-              </button>
-            ))}
-          </span>
-        </div>
-      )}
 
       <main className="scroll">
         <div
