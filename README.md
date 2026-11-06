@@ -1,159 +1,86 @@
 # Assist Voice
 
-A voice assistant that works across your calendar, email, notes, GitHub and browser tabs, and asks before it changes anything.
+**Say what you need, and it handles it across your calendar, email, notes, GitHub and browser tabs, but only after you say yes.**
 
-> **Try it live:** [assist-voice-7560957086.europe-west1.run.app](https://assist-voice-7560957086.europe-west1.run.app) (fake data, nothing to install; the first visit after a quiet spell takes about 20 seconds to wake up)
->
-> Demo video: _link coming soon_
+https://github.com/user-attachments/assets/4a06be70-2cf8-4245-8d5b-322bd651a8c4
 
-- **Talk to it.** Hold the mic and say what you need. It answers out loud, in English or German.
-- **Approval before every change.** Only an allowlist of read-only tools runs on its own. Every other tool call pauses and shows an approval card first.
-- **Undo.** Every approved change is logged with its reverse. "Undo that" reverts the last one.
-- **Read-only GitHub.** It reads repos, PRs and CI logs but can't write, comment or merge.
-- **Measured with evals.** 41 commands (10 of them trick attempts) run over HTTP against fake data. Current result: 41/41 over 3 runs.
-
-Built with Python, FastAPI, LangGraph, MCP servers, Gemini Flash-Lite (via LiteLLM), Groq Whisper and a React PWA. MIT licensed.
+<p align="center">
+  <b><a href="https://assist-voice-7560957086.europe-west1.run.app">▶ Try it live</a></b> (fake data, nothing to install)
+</p>
 
 ---
 
-## Try it in 2 minutes (demo mode)
+## What it is
 
-Demo mode runs on **fake data**: a seeded calendar, inbox, notes, GitHub repo and browser tabs in a local SQLite file. No real accounts are touched or needed. Only the weather is live.
+Chatbots tell you what to do, and then you do it yourself. Autonomous agents do it for you, but you can't see what they're about to change. **Assist Voice sits in between.** You talk to it, it prepares the work, shows you exactly what it will do, and waits for your OK. Anything it changes can be undone.
 
-**You need:**
+## What you can ask
 
-- Python 3.12 and [uv](https://docs.astral.sh/uv/)
-- Node 22 (what it was built and tested with)
-- A free Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
+| Say | What happens |
+|---|---|
+| "Start my day" | A short brief: today's events, mail that needs you, weather, your saved to-dos |
+| "Add lunch with Anna on Friday at noon" | It shows the event and adds it to your calendar after you approve |
+| "What needs a reply from me?" → "Tell Anna Thursday works" | It finds the emails and drafts the reply. It never sends; the draft waits in Gmail |
+| *(photo of a letter)* "What does this letter want?" | Sender, what they want, deadline, in English even if the letter is German, and it offers a calendar reminder |
+| "Why did CI fail?" / "Where was I?" | Reads your GitHub repo and CI log (read-only) and your recent commits |
+| "Save my tabs" | Sorts your open Chrome tabs into read-later and to-do, saves them and closes them |
+| "What did you do for me this week?" | A receipt of every change it made, and what you undid |
+| "Undo that" | Reverts the last change |
 
-**1. Clone and install**
+It also remembers preferences ("sign my emails as Rohan"), reads replies aloud, and can even write itself a small new tool, tested in a sandbox before you approve it.
+
+## Safe by design
+
+- **Nothing changes without your OK.** Only read-only tools run on their own; everything else waits on an approval card.
+- **Everything can be undone.** Each approved change is saved together with its reverse.
+- **Email is draft-only, GitHub is read-only.** There is no send tool and no write access.
+- **It can't be tricked by what it reads.** Emails, tabs and photos are treated as information, not orders. 10 trick attempts are part of the tests.
+
+## Tested
+
+41 test commands, including the 10 tricks, run 3 times each against fake data: **41/41 passed every time.** [How it's measured](docs/evals.md)
+
+## Run it yourself
+
+The quickest way is **demo mode** on fake data. You need Python 3.12 with [uv](https://docs.astral.sh/uv/), Node 22, and a free [Gemini API key](https://aistudio.google.com/apikey).
 
 ```bash
 git clone https://github.com/rohanajay247/assist-voice.git
 cd assist-voice
 uv sync
 cd web && npm install && cd ..
+cp .env.example .env    # then set GEMINI_API_KEY in .env (Windows: Copy-Item .env.example .env)
 ```
 
-**2. Add your Gemini key**
-
-Copy `.env.example` to `.env` and set `GEMINI_API_KEY`. Leave everything else empty for the demo.
-
-```powershell
-Copy-Item .env.example .env
-```
-
-```bash
-cp .env.example .env
-```
-
-**3. Start the API in demo mode** (terminal 1)
-
-`ASSIST_NOW` fixes the clock at the day the demo data is built around (Wed 4 Nov 2026, 09:00 Berlin), so "today" and "tomorrow" match the seeded calendar.
-
-PowerShell:
-
-```powershell
-$env:DEMO_MODE="true"; $env:ASSIST_NOW="2026-11-04T09:00"
-uv run uvicorn backend.assist.api:app
-```
-
-bash:
+Start the API (terminal 1). `ASSIST_NOW` fixes "today" at Wed 4 Nov 2026, the week the demo data is built around:
 
 ```bash
 DEMO_MODE=true ASSIST_NOW=2026-11-04T09:00 uv run uvicorn backend.assist.api:app
 ```
 
-**4. Start the UI** (terminal 2)
+On Windows PowerShell: `$env:DEMO_MODE="true"; $env:ASSIST_NOW="2026-11-04T09:00"` and then `uv run uvicorn backend.assist.api:app`.
+
+Start the UI (terminal 2), then open http://localhost:5173:
 
 ```bash
 cd web
 npm run dev
 ```
 
-**5. Open http://localhost:5173**
+The mic needs a free `GROQ_API_KEY` in `.env`; without it, type instead. To use your own calendar, Gmail and GitHub, see [setup](docs/setup.md).
 
-A "Demo mode" badge shows next to the name. Try "What's my day?", "Lunch with Anna tomorrow at 12", "Why did CI fail?" or "Save my tabs", then "Undo that".
+## Documentation
 
-Notes:
-
-- The API must run on port 8000; the UI proxies to it. If 8000 is taken, start the API with `--port 8001` and the UI with `ASSIST_API_TARGET=http://127.0.0.1:8001`.
-- The mic needs `GROQ_API_KEY`. Without it, type instead.
-- Every API start resets the demo data. `POST /demo/reset` does the same.
-
----
-
-## More
-
-| Guide | What's in it |
+| | |
 |---|---|
 | [Use it with your own accounts](docs/setup.md) | Settings, GitHub token, Google Calendar and Gmail sign-in |
 | [Use it every day (Windows)](docs/windows.md) | One-click shortcuts, tray icon, pinning |
 | [Phone access](docs/phone.md) | A private HTTPS link through Cloudflare Tunnel |
 | [Save my tabs](docs/extension.md) | The Chrome extension |
 | [Tool-building](docs/tool-building.md) | Letting it write new tools, tested in a Docker sandbox |
-| [Public demo](docs/public-demo.md) | Hosting it for strangers: sandboxes and limits |
+| [Public demo](docs/public-demo.md) | How the live demo is hosted: sandboxes, limits, costs |
 | [How it works](docs/architecture.md) | Routing, approvals, undo, routines |
-| [Evals](docs/evals.md) | How it's measured, what the evals found, how to run them |
+| [Evals](docs/evals.md) | How it's tested and what the tests found |
 | [Known limitations](docs/limitations.md) | What doesn't work yet |
 
----
-
-## How it works
-
-```mermaid
-flowchart LR
-  UI[PWA<br/>React + Vite] -->|/chat, /approve| API[FastAPI]
-  API --> R[router]
-  R --> A[agent<br/>Gemini Flash-Lite]
-  A --> P{approval}
-  P -->|safe or approved| T[tools]
-  T --> REC[record<br/>undo log]
-  REC --> A
-  T --> M[MCP servers<br/>notes, weather, Google,<br/>GitHub, standup, built tools]
-```
-
-Every tool call that changes something pauses for your approval, and every approved change is stored with its reverse so "Undo that" can revert it. Details: [How it works](docs/architecture.md).
-
----
-
-## Results
-
-41 commands, 3 runs each; a case passes only if it passed every run.
-
-| Area | Passed | Median latency |
-|---|---|---|
-| calendar | 5/5 | 3.0s |
-| code | 4/4 | 4.9s |
-| cross-app | 2/2 | 3.9s |
-| email | 4/4 | 3.4s |
-| memory | 2/2 | 1.2s |
-| notes | 4/4 | 1.3s |
-| routines | 3/3 | 3.4s |
-| tabs | 3/3 | 1.8s |
-| tricks | 10/10 | 1.5s |
-| undo | 2/2 | 2.6s |
-| weather | 2/2 | 3.8s |
-| **Total** | **41/41** | |
-
-
-How it's measured: [Evals](docs/evals.md).
-
----
-
-## Safety
-
-**What Assist Voice can never do:**
-
-- **Send email.** There is no send tool, only drafts.
-- **Write to GitHub.** The token is read-only, the server is asked for read-only tools, and startup fails if a write-looking tool appears.
-- **Change anything without your approval.** The approval gate is default-deny: a tool not on the safe list always pauses. The evals check this on every case.
-
-**Prompt injection.** Emails, GitHub content, tab titles and text in photos are treated as data, never as instructions. Code backs this up where it matters:
-
-- Memories that try to change approvals are refused.
-- Routines only read.
-- Built tools get no secrets and no network unless you approve it.
-- The eval suite includes injection attempts through an email, a tab and a photo.
-
-**Secrets stay local.** Keys live in `.env`; the Google client and token live in `secrets/`. Both are gitignored. The access token protects the API when it's reachable through the tunnel. Built tools run without any secrets, and the evals check that no reply leaks a value from `.env`.
+Built with Python, FastAPI, LangGraph, MCP servers, Gemini Flash-Lite (via LiteLLM), Groq Whisper and a React PWA. MIT licensed.
