@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md)
 
-The results table is in the [README](../README.md#results).
+Latest results, per area with latency: [evals/results/latest.md](../evals/results/latest.md).
 
 ## How it was measured
 

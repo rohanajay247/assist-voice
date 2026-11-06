@@ -25,11 +25,11 @@ Chatbots tell you what to do, and then you do it yourself. Autonomous agents do 
 | "What needs a reply from me?" → "Tell Anna Thursday works" | It finds the emails and drafts the reply. It never sends; the draft waits in Gmail |
 | *(photo of a letter)* "What does this letter want?" | Sender, what they want, deadline, in English even if the letter is German, and it offers a calendar reminder |
 | "Why did CI fail?" / "Where was I?" | Reads your GitHub repo and CI log (read-only) and your recent commits. Needs a GitHub token |
-| "Save my tabs" | Sorts your open Chrome tabs into read-later and to-do, saves them and closes them. Needs the [Chrome extension](docs/extension.md) |
+| "Save my tabs" | Sorts your open Chrome tabs into read-later and to-do, saves them and closes them. Needs the [Chrome extension](docs/setup.md#save-my-tabs-chrome-extension) |
 | "What did you do for me this week?" | A receipt of every change it made, and what you undid |
 | "Undo that" | Reverts the last change |
 
-Calendar and email work once you connect your Google account ([setup](docs/setup.md#google-calendar-and-gmail)); the rest works right after install, apart from the two marked above. The [live demo](https://assist-voice-7560957086.europe-west1.run.app) has all of it on fake data.
+Calendar and email work once you [connect your Google account](docs/setup.md#calendar-and-email-google).
 
 It also remembers preferences ("sign my emails as Rohan"), reads replies aloud, and can even write itself a small new tool, tested in a sandbox before you approve it.
 
@@ -58,11 +58,7 @@ Then add the features you want: calendar and email (connect Google, 15 minutes o
 
 | | |
 |---|---|
-| [Set it up for your own use](docs/setup.md) | Install, keys, start it, Google Calendar and Gmail sign-in, GitHub token, demo mode |
-| [Use it every day (Windows)](docs/windows.md) | One-click shortcuts, tray icon, pinning |
-| [Phone access](docs/phone.md) | A private HTTPS link through Cloudflare Tunnel |
-| [Save my tabs](docs/extension.md) | The Chrome extension |
-| [Tool-building](docs/tool-building.md) | Letting it write new tools, tested in a Docker sandbox |
+| [Set it up for your own use](docs/setup.md) | Install, daily use (on, off, update), and every feature: Google, tabs extension, phone, tool-building, GitHub |
 | [Public demo](docs/public-demo.md) | How the live demo is hosted: sandboxes, limits, costs |
 | [How it works](docs/architecture.md) | Routing, approvals, undo, routines |
 | [Evals](docs/evals.md) | How it's tested and what the tests found |

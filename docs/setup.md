@@ -65,7 +65,15 @@ You can also run it from PowerShell inside the folder: `powershell -ExecutionPol
 | **Update to a new version** | Download the ZIP again and unzip it over the old folder (your `.env` and `secrets` folder stay), or run `git pull`. Then run setup again |
 | **Remove it** | In the folder, run `powershell -ExecutionPolicy Bypass -File scripts/install-shortcuts.ps1 -Remove`, then delete the folder |
 
-It doesn't start by itself when the computer starts: click the shortcut when you want it. More about the shortcuts and the tray icon: [Use it every day (Windows)](windows.md).
+It doesn't start by itself when the computer starts: click the shortcut when you want it.
+
+**More about the shortcuts**
+
+- Clicking **Assist Voice** while it already runs only brings the window to the front. Clicking the other mode (Demo or normal) restarts it in that mode.
+- It all runs as one program on http://localhost:8000. You can also open that address in any browser on this computer.
+- **Sharper window (optional):** open http://localhost:8000 in Chrome, choose ⋮ > **Cast, save, and share** > **Install Assist Voice**, then run `scripts/install-shortcuts.ps1` again. The shortcut then opens the installed app.
+- Logs: `logs/assist-real.log` (normal) and `logs/assist-demo.log` (demo).
+- Without the shortcuts, from PowerShell in the folder: `scripts/assist.ps1 -Mode real` (or `-Mode demo`) to start, `scripts/assist.ps1 -Stop` to stop.
 
 ## 4. Turn on every feature
 
@@ -125,7 +133,7 @@ To use a calendar other than your main one, set `GOOGLE_CALENDAR_ID` in `.env` (
 2. Click **Load unpacked** and choose the `extension` folder inside the Assist Voice folder.
 3. Optional: pin it from the puzzle icon. If you set an `ASSIST_ACCESS_TOKEN` (for the phone), click the extension and paste it there.
 
-Now say "Save my tabs": it sorts your open tabs into read-later and to-do, and closes them after you approve. Pinned tabs are never closed. Assist Voice has to be running. More: [Save my tabs](extension.md).
+Now say "Save my tabs": it sorts your open tabs into read-later and to-do, and closes them after you approve. Pinned tabs and Assist Voice itself are never closed, and you can ask for saved tabs later ("what did I save for later?") to reopen them. The extension talks only to Assist Voice on this computer, so Assist Voice has to be running.
 
 ### Use it on your phone
 
@@ -138,7 +146,7 @@ Your computer stays the server; your phone opens it through a private link. Assi
 3. Start the tunnel in the folder: `powershell -ExecutionPolicy Bypass -File scripts/tunnel.ps1`. It prints a link like `https://something.trycloudflare.com`.
 4. Open that link on your phone, enter the password, then choose **Add to Home Screen**.
 
-The link works while that PowerShell window stays open, and it changes each time you start the tunnel. More: [Phone access](phone.md).
+The link works while that PowerShell window stays open, and it changes each time you start the tunnel: after a restart, open the new link on your phone and add it to the home screen again. Your phone needs the link because the mic and camera only work over HTTPS.
 
 ### Let it write new tools (Docker)
 
@@ -147,7 +155,9 @@ When you ask for something it can't do yet, Assist Voice can write itself a smal
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and start it.
 2. Once, in the folder: `powershell -ExecutionPolicy Bypass -File scripts/build_sandbox.ps1`
 
-Docker has to be running when you use this. Don't want it? Set `TOOLBUILDER_ENABLED=false` in `.env`. More: [Tool-building](tool-building.md).
+How it stays safe: the new code is checked, then tested in a Docker sandbox with no network, no secrets and read-only files. You see the code and the test results on the approval card before anything is installed, and built tools always run inside the sandbox.
+
+Docker has to be running when you use this. Don't want it? Set `TOOLBUILDER_ENABLED=false` in `.env`.
 
 ### GitHub and your code (for developers)
 
