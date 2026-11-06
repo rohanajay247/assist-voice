@@ -2,7 +2,9 @@
 
 **Say what you need, and it handles it across your calendar, email, notes, GitHub and browser tabs, but only after you say yes.**
 
-https://github.com/user-attachments/assets/4a06be70-2cf8-4245-8d5b-322bd651a8c4
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/4a06be70-2cf8-4245-8d5b-322bd651a8c4" width="100%" controls></video>
+</div>
 
 <p align="center">
   <b><a href="https://assist-voice-7560957086.europe-west1.run.app">▶ Try it live</a></b> (fake data, nothing to install)
