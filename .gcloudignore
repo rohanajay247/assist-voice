@@ -1,0 +1,21 @@
+# What `gcloud run deploy --source .` uploads: everything git would track, minus
+# what the container doesn't need. .env, secrets/ and *.db are gitignored, so they
+# never leave this computer.
+#
+# Every folder below starts with "/": without it a pattern matches at any depth,
+# and "demo/" would also drop backend/assist/demo/ (the demo data the app needs).
+#!include:.gitignore
+/.git/
+/.gitignore
+/.gcloudignore
+/web/node_modules/
+/web/dist/
+/.venv/
+/logs/
+/evals/
+/extension/
+/sandbox/
+/scripts/
+/tests/
+/docs/
+/demo/

@@ -1,0 +1,13 @@
+# Keep local secrets, data and build output out of the image (and the build upload)
+.env
+.env.*
+secrets/
+**/*.db
+.git/
+.venv/
+logs/
+demo/
+web/node_modules/
+web/dist/
+**/__pycache__/
+evals/results/

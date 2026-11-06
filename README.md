@@ -2,6 +2,8 @@
 
 A voice assistant that works across your calendar, email, notes, GitHub and browser tabs, and asks before it changes anything.
 
+> **Try it live:** [assist-voice-7560957086.europe-west1.run.app](https://assist-voice-7560957086.europe-west1.run.app) (fake data, nothing to install; the first visit after a quiet spell takes about 20 seconds to wake up)
+>
 > Demo video: _link coming soon_
 
 - **Talk to it.** Hold the mic and say what you need. It answers out loud, in English or German.
