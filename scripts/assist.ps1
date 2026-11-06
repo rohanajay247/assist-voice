@@ -3,6 +3,9 @@
 #   assist.ps1 [-Mode real|demo]   start the API hidden (if needed) and open the app window
 #   assist.ps1 -Stop               stop the API this script started
 #
+# While the API runs, an icon next to the clock (scripts/tray.ps1) shows it's on,
+# with Open / Stop. Closing the window leaves the API running, e.g. for the phone.
+#
 # The API serves the built web app (web/dist), so everything runs as one
 # process on http://localhost:8000. Logs: logs/assist-<mode>.log.
 # The desktop shortcuts (scripts/install-shortcuts.ps1) call this script.
@@ -121,13 +124,35 @@ function Start-Api([string]$mode) {
     Fail "Assist didn't answer within a minute. See $log"
 }
 
+# The tray icon (scripts/tray.ps1) for the API this script started, if it isn't there yet.
+# It shows the API is on after the window closes and offers Open / Stop.
+function Start-Tray([string]$mode) {
+    if ($NoWindow) { return }
+    $trayPidFile = Join-Path $Logs "tray-$Port.pid"
+    if (Test-Path $trayPidFile) {
+        $trayPid = [int](Get-Content $trayPidFile -Raw).Trim()
+        if (Get-Process -Id $trayPid -ErrorAction SilentlyContinue) { return }
+    }
+    $conhost = Join-Path $env:SystemRoot "System32\conhost.exe"
+    $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $tray = Join-Path $PSScriptRoot "tray.ps1"
+    Start-Process $conhost -WindowStyle Hidden -ArgumentList (
+        "--headless `"$powershell`" -NoProfile -STA -ExecutionPolicy Bypass -File `"$tray`" -Port $Port -Mode $mode")
+}
+
 # Assist installed as a Chrome/Edge app: install-shortcuts.ps1 saves how the
 # browser starts it (app.json). That window has its own taskbar button and sharp
 # icons, and our "Assist Voice" shortcut shares its taskbar ID.
 $AppFile = Join-Path $env:LOCALAPPDATA "Assist\app.json"
 
+Add-Type -Path (Join-Path $PSScriptRoot "AssistShell.cs")
+$WindowTitle = "Assist Voice"   # the page title, which is an app window's title
+
 function Open-Window {
     if ($NoWindow) { return }
+    # Already open: bring it to the front instead of opening a second window
+    $open = [AssistShell]::FindAppWindows($WindowTitle)
+    if ($open.Count) { [AssistShell]::Focus($open[0]); return }
     if (Test-Path $AppFile) {
         $app = Get-Content $AppFile -Raw | ConvertFrom-Json
         if (Test-Path $app.Exe) { Start-Process $app.Exe -ArgumentList $app.Arguments; return }
@@ -157,10 +182,13 @@ $started = Get-Started
 
 if ($Stop) {
     if ($started) { Stop-Started $started }
+    # The app window can't do anything without the API, so close it too
+    foreach ($w in [AssistShell]::FindAppWindows($WindowTitle)) { [AssistShell]::Close($w) }
     exit 0
 }
 
 if ($started -and $started.Mode -eq $Mode) {
+    Start-Tray $Mode     # (in case the icon was closed)
     Open-Window          # already running in this mode: just the window
     exit 0
 }
@@ -175,4 +203,5 @@ elseif (Test-PortUsed) {
 }
 
 Start-Api $Mode
+Start-Tray $Mode
 Open-Window

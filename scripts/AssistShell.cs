@@ -1,9 +1,7 @@
-// Read and set a shortcut's AppUserModelID (used by install-shortcuts.ps1).
-//
-// The installed Chrome app's window carries Chrome's app ID for it. When our
-// "Assist" shortcut has the same ID, Windows treats them as one app: the pinned
-// shortcut and the running window share one taskbar button with our icon, and
-// clicking it runs the launcher (which starts the API first).
+// Windows helpers for the launcher scripts:
+//  - read and set a shortcut's AppUserModelID (install-shortcuts.ps1): each shortcut
+//    gets its own ID, so Windows shows our icon and pins our shortcut
+//  - find, focus and close the app window (assist.ps1)
 using System;
 using System.Runtime.InteropServices;
 
@@ -55,6 +53,50 @@ public static class AssistShell
             return Marshal.PtrToStringUni(v.p);
         }
         finally { Marshal.ReleaseComObject(link); }
+    }
+
+    // ---------- The app window (a Chrome --app window titled "Assist Voice") ----------
+
+    delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc proc, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder s, int max);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder s, int max);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+
+    /// <summary>Visible Chrome/Edge windows whose title is exactly `title`. An app window's
+    /// title is the page title; a normal tab's window adds " - Google Chrome", so tabs never match.</summary>
+    public static IntPtr[] FindAppWindows(string title)
+    {
+        var found = new System.Collections.Generic.List<IntPtr>();
+        EnumWindows((hwnd, l) =>
+        {
+            if (!IsWindowVisible(hwnd)) return true;
+            var cls = new System.Text.StringBuilder(64);
+            GetClassName(hwnd, cls, 64);
+            if (cls.ToString() != "Chrome_WidgetWin_1") return true;
+            var text = new System.Text.StringBuilder(256);
+            GetWindowText(hwnd, text, 256);
+            if (text.ToString() == title) found.Add(hwnd);
+            return true;
+        }, IntPtr.Zero);
+        return found.ToArray();
+    }
+
+    /// <summary>Bring a window to the front (restoring it if minimised).</summary>
+    public static void Focus(IntPtr hwnd)
+    {
+        if (IsIconic(hwnd)) ShowWindow(hwnd, 9 /* SW_RESTORE */);
+        SetForegroundWindow(hwnd);
+    }
+
+    /// <summary>Ask a window to close, as if its X was clicked.</summary>
+    public static void Close(IntPtr hwnd)
+    {
+        PostMessage(hwnd, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
     }
 
     /// <summary>Give a .lnk file an AppUserModelID.</summary>
