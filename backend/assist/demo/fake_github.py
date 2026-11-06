@@ -87,7 +87,7 @@ def search_repositories(query: str, minimal_output: bool = True, sort: str = "",
     g = _gh()
     return {"total_count": 1, "items": [{"full_name": f"{g['owner']}/{g['repo']}", "name": g["repo"],
                                          "owner": {"login": g["owner"]}, "private": False,
-                                         "description": "Assist: a voice assistant across tools via MCP",
+                                         "description": "Assist Voice: a voice assistant across tools via MCP",
                                          "html_url": _url()}]}
 
 

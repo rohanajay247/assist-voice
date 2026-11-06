@@ -50,21 +50,21 @@ PROMPTS = {
         "'- Saved for later: ' the saved to-dos. Skip a bullet if its source is empty."
     ),
     "wrap_up": (
-        "End-of-day wrap-up. Say what got done today (commits by repo, what Assist "
+        "End-of-day wrap-up. Say what got done today (commits by repo, what Assist Voice "
         "changed), saved to-dos still pending, and tomorrow's first event. End by offering "
         "to save a note for tomorrow and to mark finished to-dos done; don't change anything yourself."
     ),
     "weekly_receipt": (
-        "Weekly receipt: what Assist did for the user in the last 7 days. Start with "
+        "Weekly receipt: what Assist Voice did for the user in the last 7 days. Start with "
         "counts.summary copied word for word; never restate, add up or recount numbers. "
         "Then name the 2-3 most useful actions from 'examples' (skip this if there are none), "
         "and end with the user's own commits this week in one line ('You made N commits "
-        "in <repo>'); the user made the commits, not Assist. Warm but factual, like a short receipt."
+        "in <repo>'); the user made the commits, not Assist Voice. Warm but factual, like a short receipt."
     ),
     "where_was_i": (
         "The user is coming back to work and asks 'where was I?'. Say what they were "
         "working on (repo, branch, the latest commits and any uncommitted changes), what "
-        "else they had going (latest notes, saved tabs, Assist's last actions), and the "
+        "else they had going (latest notes, saved tabs, Assist Voice's last actions), and the "
         "most likely next step. Be concrete: name files, branches and titles."
     ),
 }
@@ -276,7 +276,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
         today = clock.now().date()
         sources, skipped = await gather({
             "commits today": call("get_git_activity", {"date_from": today.isoformat()}),
-            "Assist actions today": recent_actions(_berlin_midnight_utc(today), 50),
+            "Assist Voice actions today": recent_actions(_berlin_midnight_utc(today), 50),
             "saved to-dos": todo_tabs(),
             "calendar tomorrow": call("list_events", {
                 "days_ahead": 1, "date_from": (today + timedelta(days=1)).isoformat()}),
@@ -297,7 +297,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
             "repos right now": asyncio.to_thread(_git_now),
             "latest notes": call("list_notes", {"limit": 3}),
             "latest saved tabs": call("search_saved_tabs", {}),
-            "Assist's last actions": recent_actions(_berlin_midnight_utc(today - timedelta(days=2)), 10),
+            "Assist Voice's last actions": recent_actions(_berlin_midnight_utc(today - timedelta(days=2)), 10),
         })
         if "latest saved tabs" in sources and isinstance(sources["latest saved tabs"], list):
             sources["latest saved tabs"] = sources["latest saved tabs"][:6]
@@ -307,7 +307,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
     async def weekly_receipt() -> str:
         """Weekly receipt: everything Assist did for the user in the last 7 days (notes,
         events, drafts, tab clean-ups, tools built, what was undone) plus the week's commits.
-        Use for 'what did you do for me this week?', 'weekly receipt', 'my week with Assist'.
+        Use for 'what did you do for me this week?', 'weekly receipt', 'my week with Assist Voice'.
         Read it out as it is."""
         today = clock.now().date()
         start = today - timedelta(days=6)
@@ -317,7 +317,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
             return {"counts": _receipt_counts(actions), "examples": _receipt_examples(actions)}
 
         sources, skipped = await gather({
-            "Assist this week": receipt(),
+            "Assist Voice this week": receipt(),
             "commits this week": call("get_git_activity", {
                 "date_from": start.isoformat(), "date_to": today.isoformat()}),
         })

@@ -18,8 +18,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
       manifest: {
-        name: 'Assist',
-        short_name: 'Assist',
+        name: 'Assist Voice',
+        short_name: 'Assist Voice',
         description: 'A voice assistant for your notes, calendar and email.',
         display: 'standalone',
         start_url: '/',

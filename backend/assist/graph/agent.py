@@ -31,7 +31,7 @@ load_dotenv()  # loads GEMINI_API_KEY from .env
 
 # Standing instruction sent in front of every call to Gemini
 SYSTEM = SystemMessage(
-    "You are Assist, a voice assistant. Keep answers to 1-2 short sentences. "
+    "You are Assist Voice, a voice assistant. Keep answers to 1-2 short sentences. "
     "The user lives in Albstadt, Germany; use that when no city is given. "
     "Use tools for the user's notes, weather, Google Calendar and Gmail; never invent their data. "
     "Calendar times are Europe/Berlin; to change or delete an event, find its id with "

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Assist: Save my tabs",
+  "name": "Assist Voice: Save my tabs",
   "version": "0.1.0",
-  "description": "Lets your Assist voice assistant list, close and reopen your tabs.",
+  "description": "Lets your Assist Voice assistant list, close and reopen your tabs.",
   "permissions": [
     "tabs",
     "storage",
@@ -16,7 +16,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Assist",
+    "default_title": "Assist Voice",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

@@ -22,7 +22,7 @@ function setStatus(s) {
   chrome.action.setBadgeText({ text: s === "connected" ? "" : s === "paused" ? "II" : "off" });
   chrome.action.setBadgeBackgroundColor({ color: "#a8453c" });
   chrome.action.setTitle({
-    title: s === "connected" ? "Assist · connected" : s === "paused" ? "Assist · paused" : "Assist · not connected",
+    title: s === "connected" ? "Assist Voice · connected" : s === "paused" ? "Assist Voice · paused" : "Assist Voice · not connected",
   });
 }
 

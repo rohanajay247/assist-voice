@@ -27,7 +27,7 @@ $ErrorActionPreference = "Continue"
     $line = "$_"
     if ($line -match "https://[a-z0-9-]+\.trycloudflare\.com") {
         Write-Host ""
-        Write-Host "  Assist is live at: $($Matches[0])" -ForegroundColor Green
+        Write-Host "  Assist Voice is live at: $($Matches[0])" -ForegroundColor Green
         Write-Host "  Open it on your phone, then use 'Add to Home Screen' to install it."
         Write-Host ""
     }

@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const LABELS = {
-  connected: "Connected to Assist",
+  connected: "Connected to Assist Voice",
   connecting: "Connecting…",
   disconnected: "API not reachable",
   paused: "Disconnected",
