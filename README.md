@@ -42,40 +42,29 @@ It also remembers preferences ("sign my emails as Rohan"), reads replies aloud, 
 
 41 test commands, including the 10 tricks, run 3 times each against fake data: **41/41 passed every time.** [How it's measured](docs/evals.md)
 
-## Run it yourself
+## Use it yourself
 
-The quickest way is **demo mode** on fake data. You need Python 3.12 with [uv](https://docs.astral.sh/uv/), Node 22, and a free [Gemini API key](https://aistudio.google.com/apikey).
+Assist Voice runs on your own computer, with your own free keys. Your data goes only to your machine and the services you connect.
 
-```bash
-git clone https://github.com/rohanajay247/assist-voice.git
-cd assist-voice
-uv sync
-cd web && npm install && cd ..
-cp .env.example .env    # then set GEMINI_API_KEY in .env (Windows: Copy-Item .env.example .env)
-```
+1. **Install** [Git](https://git-scm.com/), [uv](https://docs.astral.sh/uv/) and [Node](https://nodejs.org/) 22 or newer. uv brings Python 3.12 by itself.
+2. **Download** it:
+   ```bash
+   git clone https://github.com/rohanajay247/assist-voice.git
+   cd assist-voice
+   uv sync
+   cd web && npm install && cd ..
+   ```
+3. **Add your keys:** copy `.env.example` to `.env` and fill in a free [Gemini API key](https://aistudio.google.com/apikey) (required) and a free [Groq key](https://console.groq.com/keys) (for the mic; without it you type).
+4. **Start it.** On Windows, `powershell -ExecutionPolicy Bypass -File scripts/install-shortcuts.ps1` gives you an **Assist Voice** shortcut that opens it in its own window. On Mac or Linux, run `cd web && npm run build && cd ..` once, then `uv run uvicorn backend.assist.api:app` and open http://localhost:8000.
+5. **Connect your accounts** (optional): Google Calendar, Gmail and GitHub.
 
-Start the API (terminal 1). `ASSIST_NOW` fixes "today" at Wed 4 Nov 2026, the week the demo data is built around:
-
-```bash
-DEMO_MODE=true ASSIST_NOW=2026-11-04T09:00 uv run uvicorn backend.assist.api:app
-```
-
-On Windows PowerShell: `$env:DEMO_MODE="true"; $env:ASSIST_NOW="2026-11-04T09:00"` and then `uv run uvicorn backend.assist.api:app`.
-
-Start the UI (terminal 2), then open http://localhost:5173:
-
-```bash
-cd web
-npm run dev
-```
-
-The mic needs a free `GROQ_API_KEY` in `.env`; without it, type instead. To use your own calendar, Gmail and GitHub, see [setup](docs/setup.md).
+The full guide, with the exact commands for each step: **[Set it up for your own use](docs/setup.md)**.
 
 ## Documentation
 
 | | |
 |---|---|
-| [Use it with your own accounts](docs/setup.md) | Settings, GitHub token, Google Calendar and Gmail sign-in |
+| [Set it up for your own use](docs/setup.md) | Install, keys, start it, Google Calendar and Gmail sign-in, GitHub token, demo mode |
 | [Use it every day (Windows)](docs/windows.md) | One-click shortcuts, tray icon, pinning |
 | [Phone access](docs/phone.md) | A private HTTPS link through Cloudflare Tunnel |
 | [Save my tabs](docs/extension.md) | The Chrome extension |
