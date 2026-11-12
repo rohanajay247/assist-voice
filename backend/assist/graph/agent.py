@@ -675,7 +675,7 @@ async def build_graph(checkpointer=None):
     })
 
     all_tools = (
-        tools + builder_tools + browser.TOOLS + browser.UNDO_ONLY + memory.TOOLS + routine_tools
+        tools + builder_tools + browser.TOOLS + memory.TOOLS + routine_tools
         + [undo_last_action]
     )
     always = [undo_last_action]  # "undo that" can follow anything
