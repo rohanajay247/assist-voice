@@ -11,6 +11,7 @@ call the other tools by name.
 """
 import asyncio
 import json
+import logging
 import os
 import subprocess
 from datetime import datetime, time, timedelta, timezone
@@ -21,6 +22,8 @@ from langchain_core.tools import tool
 
 from backend.assist import clock, demo, memory
 from backend.assist.actions import actions_since
+
+log = logging.getLogger(__name__)
 
 MODEL = "gemini/gemini-3.1-flash-lite"
 TODO_DAYS = 14  # saved to-dos older than this only show as a count
@@ -233,7 +236,7 @@ def make_routine_tools(tools_by_name: dict) -> list:
         sources, skipped = {}, []
         for label, value in zip(jobs, results):
             if isinstance(value, BaseException):
-                print(f"Routine source {label} skipped: {value.__class__.__name__}: {value}")
+                log.warning(f"Routine source {label} skipped: {value.__class__.__name__}: {value}")
                 skipped.append(label)
             else:
                 sources[label] = value

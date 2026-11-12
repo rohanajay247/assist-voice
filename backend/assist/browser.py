@@ -14,6 +14,7 @@ started per call couldn't hold it.
 """
 import asyncio
 import json
+import logging
 import re
 import sqlite3
 import uuid
@@ -24,6 +25,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 from langchain_core.tools import tool
 
 from backend.assist import clock, demo
+
+log = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent / "tabs.db"  # *.db is gitignored; demo mode uses the demo DB
 TIMEOUT = 10  # seconds to wait for the extension
@@ -70,7 +73,7 @@ async def serve(ws: WebSocket) -> None:
     global _socket
     await ws.accept()
     _socket = ws
-    print("Browser extension connected")
+    log.info("Browser extension connected")
     try:
         while True:
             msg = json.loads(await ws.receive_text())
@@ -85,7 +88,7 @@ async def serve(ws: WebSocket) -> None:
     finally:
         if _socket is ws:
             _socket = None
-            print("Browser extension disconnected")
+            log.info("Browser extension disconnected")
 
 
 def connected() -> bool:

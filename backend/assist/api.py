@@ -12,9 +12,11 @@ import asyncio
 import base64
 import binascii
 import json
+import logging
 import os
 import re
 import secrets
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -33,10 +35,26 @@ from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from backend.assist import browser, demo
-from backend.assist.demo import public
-from backend.assist.graph.agent import DENIED, UNDOABLE, build_graph, needs_approval
-from backend.assist.toolbuilder import registry
+
+class _CloudRunFormatter(logging.Formatter):
+    """One JSON line per record, so Cloud Run reads the severity."""
+
+    def format(self, record):
+        return json.dumps({"severity": record.levelname, "logger": record.name,
+                           "message": super().format(record)})
+
+
+# Before importing Assist: some modules log on import (demo mode, tools)
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(_CloudRunFormatter() if os.getenv("K_SERVICE")
+                      else logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
+log = logging.getLogger(__name__)
+
+from backend.assist import browser, demo  # noqa: E402
+from backend.assist.demo import public  # noqa: E402
+from backend.assist.graph.agent import DENIED, UNDOABLE, build_graph, needs_approval  # noqa: E402
+from backend.assist.toolbuilder import registry  # noqa: E402
 
 load_dotenv()
 
@@ -375,7 +393,7 @@ async def run_graph(payload, thread_id: str) -> ChatResponse:
     try:
         result = await graph.ainvoke(payload, config)
     except MODEL_ERRORS as e:
-        print(f"Model unavailable ({e.__class__.__name__}): {str(e)[:200]}")
+        log.warning(f"Model unavailable ({e.__class__.__name__}): {str(e)[:200]}")
         response = await model_unavailable(config)
         await rebuild_if_tools_changed()  # a tool install may have run before the failure
         return response

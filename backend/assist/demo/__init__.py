@@ -6,6 +6,7 @@ seeded from seed.json. Tool names, arguments and output shapes match the
 real ones, so routing, approvals, undo and the step panel work unchanged.
 Weather stays live. Used for the evals and the shareable hosted demo.
 """
+import logging
 import os
 import sys
 from contextlib import contextmanager
@@ -14,6 +15,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from backend.assist import clock  # the resolved timezone, passed on to the stdio servers
+
+log = logging.getLogger(__name__)
 
 load_dotenv()  # read before agent.py's load_dotenv(): browser/memory/actions decide their DB on import
 
@@ -96,5 +99,5 @@ def servers(real: dict) -> dict:
         for name, module in FAKES.items()
     }
     kept = {name: cfg for name, cfg in real.items() if name not in FAKES}
-    print(f"DEMO_MODE: fake {', '.join(FAKES)}; live {', '.join(kept) or 'none'}")
+    log.info(f"DEMO_MODE: fake {', '.join(FAKES)}; live {', '.join(kept) or 'none'}")
     return {**kept, **fakes}
