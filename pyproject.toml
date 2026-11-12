@@ -30,3 +30,7 @@ dev = [
     "playwright>=1.64.1",
     "pytest>=9.2.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]  # so `uv run pytest` finds the backend package
