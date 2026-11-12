@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import itertools
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -59,6 +60,7 @@ MAX_PHOTO_BYTES = _int("PUBLIC_DEMO_MAX_PHOTO_MB", 5) * 1024 * 1024
 MAX_CHARS = _int("PUBLIC_DEMO_MAX_CHARS", 1000)               # one typed message
 SESSION_MINUTES = _int("PUBLIC_DEMO_SESSION_MINUTES", 60)     # idle time before a sandbox goes
 MAX_SESSIONS = _int("PUBLIC_DEMO_MAX_SESSIONS", 200)
+LOG_FORWARDED_FOR = os.getenv("LOG_FORWARDED_FOR", "").strip().lower() in ("1", "true", "yes")
 # Generous for opus/webm at browser bitrates; the real check is Whisper's duration
 MAX_AUDIO_BYTES = MAX_VOICE_SECONDS * 32 * 1024
 DATA_DIR = Path(os.getenv("PUBLIC_DEMO_DATA_DIR", "").strip()
@@ -241,6 +243,23 @@ class Visit:
         return None
 
 
+log = logging.getLogger(__name__)
+
+
+def client_ip(request) -> str:
+    """The visitor's IP for the per-IP limit.
+    uvicorn runs with --forwarded-allow-ips='*', so request.client.host is the FIRST
+    X-Forwarded-For entry, which the visitor can set. Cloud Run appends the real
+    client IP, so the LAST entry is the one to trust."""
+    raw = ", ".join(request.headers.getlist("x-forwarded-for"))
+    if LOG_FORWARDED_FOR:
+        log.info("X-Forwarded-For: %r", raw)
+    last = raw.rsplit(",", 1)[-1].strip()
+    if last:
+        return last
+    return request.client.host if request.client else "unknown"
+
+
 @asynccontextmanager
 async def visit(request):
     """Run a request in the visitor's sandbox: their DB for every tool and module.
@@ -248,7 +267,7 @@ async def visit(request):
     if not demo.PUBLIC_DEMO:
         yield Visit(None, "")
         return
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     token = request.scope.get("assist_demo_cookie", "")
     session = await _session(token)
     if session is None:

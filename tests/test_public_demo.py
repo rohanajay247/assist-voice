@@ -252,6 +252,17 @@ def test_ip_daily_limit(app, monkeypatch):
     assert chat(visitor(app), "hi")["reply"] == public.IP_LIMIT  # a new cookie doesn't help
 
 
+def test_ip_limit_uses_last_forwarded_for(app, monkeypatch):
+    """The first X-Forwarded-For entry is the visitor's to fake; the last is Cloud Run's."""
+    monkeypatch.setattr(public, "IP_MESSAGES", 1)
+    a, b = visitor(app), visitor(app)
+    chat_from = lambda c, xff: c.post("/chat", headers={"X-Forwarded-For": xff},
+                                      json={"thread_id": "t1", "message": "hi"}).json()
+    assert chat_from(a, "1.1.1.1, 9.9.9.9")["reply"] == "hello"
+    assert chat_from(b, "2.2.2.2, 9.9.9.9")["reply"] == public.IP_LIMIT
+    assert {ip for _, ip in public._by_ip} == {"9.9.9.9"}
+
+
 def test_global_daily_limit(app, monkeypatch):
     monkeypatch.setattr(public, "DAILY_MESSAGES", 1)
     chat(visitor(app), "hi")
