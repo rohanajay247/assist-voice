@@ -95,6 +95,33 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, dependencies=[Depends(require_token)])
+
+SECURITY_HEADERS = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+    (b"content-security-policy", b"frame-ancestors 'none'"),  # no framing (clickjacking)
+]
+
+
+class SecurityHeadersMiddleware:
+    """Pure ASGI: adds SECURITY_HEADERS to every HTTP response (API and PWA files)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                message["headers"] = [*message.get("headers", []), *SECURITY_HEADERS]
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 if demo.PUBLIC_DEMO:
     app.add_middleware(public.CookieMiddleware)  # a sandbox cookie for every visitor
 app.add_middleware(

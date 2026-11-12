@@ -311,6 +311,13 @@ def test_no_token_needed_and_demo_flags(app):
     assert body["limits"]["messages"] == public.SESSION_MESSAGES
 
 
+def test_security_headers(app):
+    res = visitor(app).get("/auth/check")
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert res.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert res.headers["content-security-policy"] == "frame-ancestors 'none'"
+
+
 def test_extension_socket_and_demo_endpoints_are_off(app):
     client = visitor(app)
     assert client.get("/ext/ws").status_code == 404
