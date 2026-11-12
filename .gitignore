@@ -262,3 +262,6 @@ web/dist/
 /CLAUDE.md
 /PROGRESS.md
 /Claude outputs/
+
+# graphify knowledge graph output
+graphify-out/

@@ -1,5 +1,7 @@
 # Assist Voice
 
+[![CI](https://github.com/rohanajay247/assist-voice/actions/workflows/ci.yml/badge.svg)](https://github.com/rohanajay247/assist-voice/actions/workflows/ci.yml)
+
 **Say what you need, and it handles it across your calendar, email, notes, GitHub and browser tabs, but only after you say yes.**
 
 <div align="center">
