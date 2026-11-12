@@ -9,7 +9,6 @@ After a tool ran, the reply is the tool's output, so tests can read the data bac
 
 Run: uv run pytest tests/test_public_demo.py
 """
-import json
 import os
 import sqlite3
 import sys
@@ -33,6 +32,7 @@ from langchain_core.callbacks import BaseCallbackHandler  # noqa: E402
 from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage  # noqa: E402
 from langchain_core.outputs import ChatGeneration, ChatResult  # noqa: E402
+from starlette.websockets import WebSocketDisconnect  # noqa: E402
 
 from backend.assist import api  # noqa: E402
 from backend.assist.demo import public  # noqa: E402
@@ -321,7 +321,7 @@ def test_security_headers(app):
 def test_extension_socket_and_demo_endpoints_are_off(app):
     client = visitor(app)
     assert client.get("/ext/ws").status_code == 404
-    with pytest.raises(Exception):
+    with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ext/ws"):
             pass
     assert client.post("/demo/reset").status_code in (404, 405)
